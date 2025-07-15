@@ -4,8 +4,10 @@ import { toast } from 'react-toastify';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ConfirmDialog from '../common/ConfirmDialog';
 import websocketService from '../../services/websocket';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Tables = () => {
+  const { isAdmin, hasPermission } = useAuth();
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTable, setSelectedTable] = useState(null);
@@ -67,9 +69,6 @@ const Tables = () => {
 
   // WebSocket setup
   useEffect(() => {
-    // Connect to WebSocket
-    websocketService.connect();
-
     // Subscribe to table updates
     const unsubscribeMessage = websocketService.subscribe('message', (data) => {
       if (data.type === 'table_update') {
@@ -99,7 +98,6 @@ const Tables = () => {
     return () => {
       unsubscribeMessage();
       unsubscribeConnection();
-      websocketService.disconnect();
     };
   }, [fetchTables]);
 
@@ -312,13 +310,15 @@ const Tables = () => {
             </span>
             {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="btn btn-primary flex items-center gap-2"
-          >
-            <span>➕</span>
-            Add Table
-          </button>
+          {hasPermission('tables.create') && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="btn btn-primary flex items-center gap-2"
+            >
+              <span>➕</span>
+              Add Table
+            </button>
+          )}
         </div>
       </div>
 
@@ -405,7 +405,7 @@ const Tables = () => {
       </div>
 
       {/* Bulk Actions Bar */}
-      {selectedTableIds.length > 0 && (
+      {selectedTableIds.length > 0 && hasPermission('tables.edit') && (
         <div className="card p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-2 border-primary-200 bg-primary-50 mb-4">
           <div className="flex flex-wrap gap-2 items-center">
             <span className="font-medium text-primary-700">{selectedTableIds.length} table(s) selected</span>
@@ -422,78 +422,88 @@ const Tables = () => {
       )}
 
       {/* Tables Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        {filteredTables.map((table) => (
-          <div
-            key={table.id}
-            className={`card p-4 text-center cursor-pointer transition-all duration-200 hover:shadow-lg focus-within:shadow-lg hover:border-primary-300 focus-within:border-primary-400 min-h-[220px] flex flex-col justify-between ${
-              table.status === 'AVAILABLE' 
-                ? 'hover:bg-green-50 border-green-200' 
-                : table.status === 'OCCUPIED'
-                ? 'bg-yellow-50 border-yellow-200'
-                : 'bg-blue-50 border-blue-200'
-            }`}
-            onClick={() => {
-              setSelectedTable(table);
-              setShowStatusModal(true);
-            }}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <input
-                type="checkbox"
-                checked={isTableSelected(table.id)}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  toggleTableSelection(table.id);
-                }}
-                onClick={(e) => e.stopPropagation()}
-                className="mr-2"
-              />
-              <div className="text-3xl">{getStatusIcon(table.status)}</div>
+      <div style={{maxHeight: 'calc(3 * 240px + 2rem)', overflowY: 'auto'}} className="w-full">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 mb-6">
+          {filteredTables.map((table) => (
+            <div
+              key={table.id}
+              className={`card p-4 text-center cursor-pointer transition-all duration-200 hover:shadow-lg focus-within:shadow-lg hover:border-primary-300 focus-within:border-primary-400 min-h-[220px] flex flex-col justify-between ${
+                table.status === 'AVAILABLE' 
+                  ? 'hover:bg-green-50 border-green-200' 
+                  : table.status === 'OCCUPIED'
+                  ? 'bg-yellow-50 border-yellow-200'
+                  : 'bg-blue-50 border-blue-200'
+              }`}
+              onClick={() => {
+                setSelectedTable(table);
+                setShowStatusModal(true);
+              }}
+            >
+              <div className="flex items-center justify-between mb-2">
+                {hasPermission('tables.edit') && (
+                  <input
+                    type="checkbox"
+                    checked={isTableSelected(table.id)}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      toggleTableSelection(table.id);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="mr-2"
+                  />
+                )}
+                <div className="text-3xl">{getStatusIcon(table.status)}</div>
+              </div>
+              <div className="text-2xl font-bold text-gray-900 mb-2">
+                Table {table.number}
+              </div>
+              <div className="mb-2">
+                {getStatusBadge(table.status, table.maintenance)}
+              </div>
+              <div className={`text-xs text-gray-500 mb-3 flex flex-col gap-1`}>
+                <span>Capacity: {table.capacity} people <span className="ml-2 px-2 py-1 bg-gray-100 rounded text-xs font-medium text-gray-700">{table.group || 'General'}</span></span>
+                {table.notes && <span className="italic text-gray-400">📝 {table.notes}</span>}
+              </div>
+              <div className="flex justify-center gap-1">
+                {hasPermission('tables.edit') && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingTable(table);
+                      setShowEditModal(true);
+                    }}
+                    className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded focus:ring-2 focus:ring-primary-400"
+                  >
+                    Edit
+                  </button>
+                )}
+                {hasPermission('tables.delete') && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedTable(table);
+                      setShowDeleteDialog(true);
+                    }}
+                    className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded focus:ring-2 focus:ring-primary-400"
+                  >
+                    Delete
+                  </button>
+                )}
+                {hasPermission('tables.view') && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openHistoryModal(table);
+                    }}
+                    className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded focus:ring-2 focus:ring-primary-400"
+                  >
+                    History
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="text-2xl font-bold text-gray-900 mb-2">
-              Table {table.number}
-            </div>
-            <div className="mb-2">
-              {getStatusBadge(table.status, table.maintenance)}
-            </div>
-            <div className={`text-xs text-gray-500 mb-3 flex flex-col gap-1`}>
-              <span>Capacity: {table.capacity} people <span className="ml-2 px-2 py-1 bg-gray-100 rounded text-xs font-medium text-gray-700">{table.group || 'General'}</span></span>
-              {table.notes && <span className="italic text-gray-400">📝 {table.notes}</span>}
-            </div>
-            <div className="flex justify-center gap-1">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEditingTable(table);
-                  setShowEditModal(true);
-                }}
-                className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded focus:ring-2 focus:ring-primary-400"
-              >
-                Edit
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedTable(table);
-                  setShowDeleteDialog(true);
-                }}
-                className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded focus:ring-2 focus:ring-primary-400"
-              >
-                Delete
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openHistoryModal(table);
-                }}
-                className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded focus:ring-2 focus:ring-primary-400"
-              >
-                History
-              </button>
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       {filteredTables.length === 0 && (

@@ -6,6 +6,26 @@ const dayjs = require('dayjs');
 const router = express.Router();
 const prisma = new PrismaClient();
 
+// Helper function to get business settings
+const getBusinessSettings = async () => {
+  const settingsRecord = await prisma.settings.findUnique({
+    where: { category: 'business' }
+  });
+  
+  // Default business settings if none exist
+  const defaultBusinessSettings = {
+    restaurantName: 'Restaurant POS',
+    address: '123 Main Street, City, State 12345',
+    phone: '+1 (555) 123-4567',
+    email: 'info@restaurant.com',
+    taxRate: 8.5,
+    currency: 'USD',
+    timezone: 'America/New_York'
+  };
+  
+  return settingsRecord?.data || defaultBusinessSettings;
+};
+
 // Generate order number
 const generateOrderNumber = () => {
   const date = dayjs().format('YYYYMMDD');
@@ -33,10 +53,19 @@ router.get('/', async (req, res) => {
     if (status) where.status = status;
     if (tableId && !isNaN(parseInt(tableId))) where.tableId = parseInt(tableId);
     if (userId && !isNaN(parseInt(userId))) where.userId = parseInt(userId);
+    
     if (startDate || endDate) {
       where.createdAt = {};
-      if (startDate) where.createdAt.gte = new Date(startDate);
-      if (endDate) where.createdAt.lte = new Date(endDate);
+      if (startDate) {
+        // Set to start of day (00:00:00) in UTC
+        const startDateTime = new Date(startDate + 'T00:00:00.000Z');
+        where.createdAt.gte = startDateTime;
+      }
+      if (endDate) {
+        // Set to end of day (23:59:59.999) in UTC
+        const endDateTime = new Date(endDate + 'T23:59:59.999Z');
+        where.createdAt.lte = endDateTime;
+      }
     }
     if (req.query.search && req.query.search.trim() !== "") {
       where.orderNumber = { contains: req.query.search.trim() };
@@ -68,7 +97,7 @@ router.get('/', async (req, res) => {
       take: parseInt(limit)
     });
 
-    console.log('Orders from database:', orders);
+
 
     const total = await prisma.order.count({ where });
 
@@ -215,12 +244,15 @@ router.post('/', [
       });
     }
 
-    const tax = subtotal * 0.1; // 10% tax
+    // Get business settings for tax calculation and snapshot
+    const businessSettings = await getBusinessSettings();
+    const taxRate = businessSettings.taxRate || 8.5;
+    const tax = (subtotal * taxRate) / 100;
     const total = subtotal + tax - discount;
 
     // Create order with transaction
     const order = await prisma.$transaction(async (tx) => {
-      // Create order
+      // Create order with business snapshot
       const newOrder = await tx.order.create({
         data: {
           orderNumber: generateOrderNumber(),
@@ -231,11 +263,10 @@ router.post('/', [
           discount,
           total,
           customerNote,
+          businessSnapshot: businessSettings, // Store business settings at time of order
           status: 'PENDING' // Explicitly set status
         }
       });
-      
-
 
       // Create order items
       await tx.orderItem.createMany({
@@ -246,15 +277,10 @@ router.post('/', [
       });
 
       // Update table status
-      const updatedTable = await tx.table.update({
+      await tx.table.update({
         where: { id: tableId },
         data: { status: 'OCCUPIED' }
       });
-
-      // Send WebSocket notification
-      if (global.wss) {
-        global.wss.sendTableUpdate(updatedTable);
-      }
 
       return newOrder;
     });
@@ -282,6 +308,17 @@ router.post('/', [
         }
       }
     });
+
+    // Get updated table for WebSocket notification
+    const updatedTable = await prisma.table.findUnique({
+      where: { id: tableId }
+    });
+
+    // Send WebSocket notification
+    if (global.wss) {
+      global.wss.sendTableUpdate(updatedTable);
+      global.wss.sendOrderUpdate({ type: 'order_created', order: completeOrder });
+    }
 
     res.status(201).json({
       success: true,
@@ -465,6 +502,11 @@ router.patch('/:id/pay', [
       });
     });
 
+    // Send WebSocket notification
+    if (global.wss) {
+      global.wss.sendOrderUpdate({ type: 'order_updated', orderId });
+    }
+
     res.json({
       success: true,
       message: 'Payment processed successfully',
@@ -516,6 +558,11 @@ router.patch('/:id/cancel', async (req, res) => {
         data: { status: 'AVAILABLE' }
       });
     });
+
+    // Send WebSocket notification
+    if (global.wss) {
+      global.wss.sendOrderUpdate({ type: 'order_updated', orderId });
+    }
 
     res.json({
       success: true,
@@ -624,7 +671,10 @@ router.put('/:id', [
       });
     }
 
-    const tax = subtotal * 0.1; // 10% tax
+    // Use original business snapshot for tax calculation to maintain historical accuracy
+    const businessSnapshot = existingOrder.businessSnapshot || await getBusinessSettings();
+    const taxRate = businessSnapshot.taxRate || 8.5;
+    const tax = (subtotal * taxRate) / 100;
     const total = subtotal + tax - discount;
 
     // Update order with transaction
@@ -634,16 +684,23 @@ router.put('/:id', [
         where: { orderId }
       });
 
-      // Update order
+      // Update order (preserve business snapshot if it exists, otherwise create one)
+      const updateData = {
+        subtotal,
+        tax,
+        discount,
+        total,
+        customerNote
+      };
+      
+      // If no business snapshot exists, create one for historical accuracy
+      if (!existingOrder.businessSnapshot) {
+        updateData.businessSnapshot = await getBusinessSettings();
+      }
+      
       const order = await tx.order.update({
         where: { id: orderId },
-        data: {
-          subtotal,
-          tax,
-          discount,
-          total,
-          customerNote
-        }
+        data: updateData
       });
 
       // Create new order items

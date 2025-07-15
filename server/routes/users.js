@@ -213,6 +213,60 @@ router.put('/:id', [
   }
 });
 
+// Update user status (activate/deactivate)
+router.patch('/:id', [
+  body('isActive').isBoolean().withMessage('isActive must be a boolean')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: errors.array()
+      });
+    }
+
+    const { isActive } = req.body;
+    const userId = parseInt(req.params.id);
+
+    // Don't allow admin to deactivate themselves
+    if (userId === req.user.id && !isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot deactivate your own account'
+      });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { isActive },
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `User ${isActive ? 'activated' : 'deactivated'} successfully`,
+      data: user
+    });
+  } catch (error) {
+    console.error('Update user status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user status'
+    });
+  }
+});
+
 // Change user password
 router.patch('/:id/password', [
   body('newPassword').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')

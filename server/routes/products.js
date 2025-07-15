@@ -1,12 +1,13 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
+const { requirePermission } = require('../middleware/permissions');
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
 // Get all products with advanced filtering and sorting
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('products.view'), async (req, res) => {
   try {
     const { 
       categoryId, 
@@ -92,7 +93,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get product by ID
-router.get('/:id', async (req, res) => {
+router.get('/:id', requirePermission('products.view'), async (req, res) => {
   try {
     const product = await prisma.product.findUnique({
       where: { id: parseInt(req.params.id) },
@@ -122,7 +123,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create new product
-router.post('/', [
+router.post('/', requirePermission('products.create'), [
   body('name').notEmpty().withMessage('Product name is required'),
   body('price').isFloat({ min: 0 }).withMessage('Price must be a positive number'),
   body('categoryId').isInt().withMessage('Category ID is required'),
@@ -189,7 +190,7 @@ router.post('/', [
 });
 
 // Toggle product active status
-router.patch('/:id', [
+router.patch('/:id', requirePermission('products.edit'), [
   body('isActive').isBoolean().withMessage('isActive must be a boolean')
 ], async (req, res) => {
   try {
@@ -240,7 +241,7 @@ router.patch('/:id', [
 });
 
 // Update product
-router.put('/:id', [
+router.put('/:id', requirePermission('products.edit'), [
   body('name').notEmpty().withMessage('Product name is required'),
   body('price').isFloat({ min: 0 }).withMessage('Price must be a positive number'),
   body('categoryId').isInt().withMessage('Category ID is required'),
@@ -313,7 +314,7 @@ router.put('/:id', [
 });
 
 // Delete product (soft delete)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requirePermission('products.delete'), async (req, res) => {
   try {
     const productId = parseInt(req.params.id);
 
@@ -347,7 +348,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Export products to CSV
-router.get('/export/csv', async (req, res) => {
+router.get('/export/csv', requirePermission('products.export'), async (req, res) => {
   try {
     const { categoryId, isDrink, status } = req.query;
     
@@ -402,7 +403,7 @@ router.get('/export/csv', async (req, res) => {
 });
 
 // Import products from CSV
-router.post('/import/csv', async (req, res) => {
+router.post('/import/csv', requirePermission('products.import'), async (req, res) => {
   try {
     const { products } = req.body;
     

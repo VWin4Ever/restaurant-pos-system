@@ -10,6 +10,12 @@ class WebSocketService {
 
   connect(url = 'ws://localhost:5000') {
     try {
+      // Close existing connection if any
+      if (this.ws) {
+        this.ws.close();
+        this.ws = null;
+      }
+
       this.ws = new WebSocket(url);
       
       this.ws.onopen = () => {
@@ -28,11 +34,15 @@ class WebSocketService {
         }
       };
 
-      this.ws.onclose = () => {
-        console.log('WebSocket disconnected');
+      this.ws.onclose = (event) => {
+        console.log('WebSocket disconnected', event.code, event.reason);
         this.isConnected = false;
         this.notifyListeners('connection', { status: 'disconnected' });
-        this.attemptReconnect();
+        
+        // Only attempt reconnect if it wasn't a manual close
+        if (event.code !== 1000) {
+          this.attemptReconnect();
+        }
       };
 
       this.ws.onerror = (error) => {
@@ -42,6 +52,7 @@ class WebSocketService {
 
     } catch (error) {
       console.error('Failed to create WebSocket connection:', error);
+      this.attemptReconnect();
     }
   }
 
@@ -61,8 +72,10 @@ class WebSocketService {
 
   disconnect() {
     if (this.ws) {
-      this.ws.close();
+      this.ws.close(1000, 'Manual disconnect');
       this.ws = null;
+      this.isConnected = false;
+      this.reconnectAttempts = 0;
     }
   }
 

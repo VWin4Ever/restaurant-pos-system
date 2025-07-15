@@ -1,194 +1,132 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import LoadingSpinner from '../common/LoadingSpinner';
+import Icon from '../common/Icon';
+import { useNavigate } from 'react-router-dom';
 
 const Dashboard = () => {
-  const { user, isAdmin } = useAuth();
-  const [dashboardData, setDashboardData] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [salesData, setSalesData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [recentActivity, setRecentActivity] = useState([
+    { id: 1, message: 'System is running smoothly', type: 'success', time: 'Just now' },
+    { id: 2, message: 'All tables are operational', type: 'primary', time: '2 min ago' },
+    { id: 3, message: 'Ready to serve customers', type: 'warning', time: '5 min ago' },
+  ]);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
+    const fetchDashboard = async () => {
       try {
-        if (isAdmin) {
-          const response = await axios.get('/api/reports/dashboard');
-          setDashboardData(response.data.data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch dashboard data:', error);
-        toast.error('Failed to load dashboard data');
+        setLoading(true);
+        setError(null);
+        const statsRes = await axios.get('/api/reports/dashboard');
+        const salesRes = await axios.get('/api/reports/sales?range=week');
+        setStats(statsRes.data.data);
+        setSalesData(salesRes.data.data);
+      } catch (err) {
+        setError('Failed to load dashboard');
+        toast.error('Failed to load dashboard');
       } finally {
         setLoading(false);
       }
     };
+    fetchDashboard();
+  }, []);
 
-    fetchDashboardData();
-  }, [isAdmin]);
-
-  if (loading) {
-    return <LoadingSpinner />;
-  }
-
-  const StatCard = ({ title, value, subtitle, icon, color = 'primary' }) => (
-    <div className="card p-6">
-      <div className="flex items-center">
-        <div className={`flex-shrink-0 p-3 rounded-lg bg-${color}-100`}>
-          <span className="text-2xl">{icon}</span>
-        </div>
-        <div className="ml-4">
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-semibold text-gray-900">{value}</p>
-          {subtitle && <p className="text-sm text-gray-500">{subtitle}</p>}
-        </div>
-      </div>
+  if (loading) return <LoadingSpinner />;
+  if (error) return (
+    <div className="flex flex-col items-center justify-center py-16">
+      <Icon name="error" className="w-16 h-16 text-error mb-4" />
+      <div className="text-xl font-bold text-error mb-2">{error}</div>
+      <button className="btn-primary" onClick={() => window.location.reload()}>Retry</button>
     </div>
   );
 
-  const formatCurrency = (amount) => {
-    if (amount === null || amount === undefined) return '$0.00';
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
-  };
-
   return (
-    <div className="space-y-6">
-      {/* Welcome Section */}
-      <div className="card p-6">
-        <h1 className="text-2xl font-bold text-gray-900">
-          Welcome back, {user?.name}! 👋
-        </h1>
-        <p className="text-gray-600 mt-2">
-          {isAdmin ? 'Here\'s what\'s happening in your restaurant today.' : 'Ready to take orders and serve customers.'}
-        </p>
+    <div className="space-y-8">
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+        <StatCard title="Today's Sales" value={formatCurrency(stats.todaySales?.total || 0)} icon="money" color="primary" />
+        <StatCard title="Pending Orders" value={stats.pendingOrders || 0} icon="clock" color="warning" onClick={() => navigate('/orders')} clickable />
+        <StatCard title="Available Tables" value={stats.availableTables || 0} icon="tables" color="success" onClick={() => navigate('/tables')} clickable />
+        <StatCard title="Avg Order" value={formatCurrency(stats.averageOrder || 0)} icon="reports" color="accent" />
       </div>
 
-      {/* Admin Dashboard */}
-      {isAdmin && dashboardData && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <StatCard
-            title="Today's Sales"
-            value={formatCurrency(dashboardData.todaySales?.total || 0)}
-            subtitle={`${dashboardData.todaySales?.count || 0} orders`}
-            icon="💰"
-            color="success"
-          />
-          <StatCard
-            title="Average Order"
-            value={formatCurrency(dashboardData.averageOrder || 0)}
-            subtitle="per order"
-            icon="📊"
-            color="primary"
-          />
-          <StatCard
-            title="Pending Orders"
-            value={dashboardData.pendingOrders || 0}
-            subtitle="Awaiting payment"
-            icon="⏳"
-            color="warning"
-          />
-          <StatCard
-            title="Available Tables"
-            value={dashboardData.availableTables || 0}
-            subtitle="Ready for customers"
-            icon="🪑"
-            color="success"
-          />
-        </div>
-      )}
+      {/* Sales Trend Chart */}
+      <div className="bg-surface rounded-2xl p-6 shadow-soft">
+        <h2 className="text-xl font-bold mb-4">Sales Trend (Last 7 Days)</h2>
+        {salesData && salesData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={salesData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} />
+              <Tooltip />
+              <Bar dataKey="total" fill="#6B2C2F" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex items-center justify-center h-40 text-gray-400 text-lg">No sales data for the last 7 days.</div>
+        )}
+      </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div className="card p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
-          <div className="space-y-3">
-            <a
-              href="/orders"
-              className="flex items-center p-3 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <span className="text-xl mr-3">🛒</span>
-              <div>
-                <p className="font-medium text-gray-900">Create New Order</p>
-                <p className="text-sm text-gray-600">Start taking orders</p>
-              </div>
-            </a>
-            <a
-              href="/tables"
-              className="flex items-center p-3 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <span className="text-xl mr-3">🪑</span>
-              <div>
-                <p className="font-medium text-gray-900">Manage Tables</p>
-                <p className="text-sm text-gray-600">View table status</p>
-              </div>
-            </a>
-            {isAdmin && (
-              <>
-                <a
-                  href="/products"
-                  className="flex items-center p-3 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <span className="text-xl mr-3">📦</span>
-                  <div>
-                    <p className="font-medium text-gray-900">Manage Products</p>
-                    <p className="text-sm text-gray-600">Add or edit menu items</p>
-                  </div>
-                </a>
-                <a
-                  href="/stock"
-                  className="flex items-center p-3 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <span className="text-xl mr-3">📦</span>
-                  <div>
-                    <p className="font-medium text-gray-900">Stock Management</p>
-                    <p className="text-sm text-gray-600">Manage inventory</p>
-                  </div>
-                </a>
-                <a
-                  href="/reports"
-                  className="flex items-center p-3 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <span className="text-xl mr-3">📊</span>
-                  <div>
-                    <p className="font-medium text-gray-900">View Reports</p>
-                    <p className="text-sm text-gray-600">Sales and analytics</p>
-                  </div>
-                </a>
-              </>
-            )}
-          </div>
-        </div>
+      <div className="flex flex-wrap gap-4">
+        <button className="btn-primary flex items-center transition-transform hover:scale-105" onClick={() => navigate('/orders')}>
+          <Icon name="add" className="mr-2" /> New Order
+        </button>
+        <button className="btn-accent flex items-center transition-transform hover:scale-105" onClick={() => window.print()}>
+          <Icon name="download" className="mr-2" /> Print Report
+        </button>
+      </div>
 
-        {/* System Status */}
-        <div className="card p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">System Status</h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600">Database</span>
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                Online
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600">API Server</span>
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                Online
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600">Printer</span>
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                Ready
-              </span>
-            </div>
+      {/* Recent Activity Section */}
+      <div className="bg-surface rounded-2xl p-6 shadow-soft animate-fade-in-up">
+        <div className="flex items-center space-x-3 mb-6">
+          <div className="icon-primary">
+            <Icon name="clock" />
           </div>
+          <h3 className="text-xl font-bold text-gradient">Recent Activity</h3>
+        </div>
+        <div className="space-y-4">
+          {recentActivity.map(activity => (
+            <div key={activity.id} className="flex items-center space-x-3 p-3 bg-background rounded-xl border border-surface">
+              <div className={`w-2 h-2 rounded-full ${activity.type === 'success' ? 'bg-success' : activity.type === 'primary' ? 'bg-primary' : 'bg-warning'}`}></div>
+              <span className="text-sm text-primary">{activity.message}</span>
+              <span className="text-xs text-gray-400 ml-auto">{activity.time}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
   );
 };
+
+function formatCurrency(amount) {
+  if (typeof amount !== 'number') amount = Number(amount) || 0;
+  return '$' + amount.toLocaleString();
+}
+
+const StatCard = ({ title, value, icon, color, onClick, clickable }) => (
+  <div
+    className={`card flex items-center space-x-4 p-6 cursor-${clickable ? 'pointer' : 'default'} transition hover:shadow-lg hover:-translate-y-1`}
+    onClick={clickable ? onClick : undefined}
+    tabIndex={clickable ? 0 : -1}
+    role={clickable ? 'button' : undefined}
+    aria-label={clickable ? title : undefined}
+    style={clickable ? { outline: 'none' } : {}}
+  >
+    <div className={`rounded-full p-3 bg-${color} text-white flex items-center justify-center transition-transform duration-200`}>
+      <Icon name={icon} size="xl" />
+    </div>
+    <div>
+      <div className="text-lg font-bold">{value}</div>
+      <div className="text-sm text-gray-500">{title}</div>
+    </div>
+  </div>
+);
 
 export default Dashboard; 

@@ -211,6 +211,98 @@ router.post('/add', [
   }
 });
 
+// Adjust stock (add/remove/adjust)
+router.post('/:id/adjust', [
+  body('quantity').isInt().withMessage('Quantity must be a number'),
+  body('note').optional().isString(),
+  body('type').isIn(['ADD', 'REMOVE', 'ADJUST']).withMessage('Type must be ADD, REMOVE, or ADJUST')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: errors.array()
+      });
+    }
+
+    const { quantity, note, type } = req.body;
+    const stockId = parseInt(req.params.id);
+
+    const stock = await prisma.stock.findUnique({
+      where: { id: stockId },
+      include: {
+        product: true
+      }
+    });
+
+    if (!stock) {
+      return res.status(404).json({
+        success: false,
+        message: 'Stock not found'
+      });
+    }
+
+    let newQuantity = stock.quantity;
+    let logQuantity = Math.abs(quantity);
+
+    // Calculate new quantity based on type
+    switch (type) {
+      case 'ADD':
+        newQuantity += quantity;
+        break;
+      case 'REMOVE':
+        newQuantity -= quantity;
+        if (newQuantity < 0) newQuantity = 0;
+        break;
+      case 'ADJUST':
+        newQuantity = quantity;
+        break;
+    }
+
+    // Update stock with transaction
+    const updatedStock = await prisma.$transaction(async (tx) => {
+      const updated = await tx.stock.update({
+        where: { id: stockId },
+        data: { quantity: newQuantity },
+        include: {
+          product: {
+            include: {
+              category: true
+            }
+          }
+        }
+      });
+
+      // Log stock adjustment
+      await tx.stockLog.create({
+        data: {
+          stockId,
+          userId: req.user.id,
+          type,
+          quantity: logQuantity,
+          note: note || `${type === 'ADD' ? 'Stock added' : type === 'REMOVE' ? 'Stock removed' : 'Stock adjusted'}`
+        }
+      });
+
+      return updated;
+    });
+
+    res.json({
+      success: true,
+      message: 'Stock adjusted successfully',
+      data: updatedStock
+    });
+  } catch (error) {
+    console.error('Adjust stock error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to adjust stock'
+    });
+  }
+});
+
 // Update stock quantity
 router.patch('/:id/quantity', [
   body('quantity').isInt({ min: 0 }).withMessage('Quantity must be a non-negative number'),

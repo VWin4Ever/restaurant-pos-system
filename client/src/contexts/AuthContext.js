@@ -99,7 +99,12 @@ export const AuthProvider = ({ children }) => {
     changePassword,
     isAuthenticated: !!user,
     isAdmin: user?.role === 'ADMIN',
-    isCashier: user?.role === 'CASHIER'
+    isCashier: user?.role === 'CASHIER',
+    hasPermission: (permission) => user?.permissions?.includes(permission) || false,
+    canPerformAction: (action, resource) => {
+      const permission = `${resource}.${action}`;
+      return user?.permissions?.includes(permission) || false;
+    }
   };
 
   return (

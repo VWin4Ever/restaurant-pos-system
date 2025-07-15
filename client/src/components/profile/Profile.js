@@ -68,6 +68,10 @@ const Profile = () => {
     try {
       const response = await axios.put('/api/auth/profile', data);
       updateUser(response.data.data);
+      resetProfile({
+        name: response.data.data.name,
+        email: response.data.data.email
+      });
       toast.success('Profile updated successfully!');
     } catch (error) {
       console.error('Profile update failed:', error);
@@ -112,6 +116,16 @@ const Profile = () => {
           >
             Change Password
           </button>
+          <button
+            onClick={() => setActiveTab('activity')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'activity'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Account Activity
+          </button>
         </nav>
       </div>
 
@@ -120,10 +134,28 @@ const Profile = () => {
         <div className="space-y-6">
           {/* User Information Display */}
           <div className="card p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Current Information</h3>
+            <div className="flex items-center mb-6">
+              <div className="flex-shrink-0">
+                <div className="h-16 w-16 rounded-full bg-primary-100 flex items-center justify-center">
+                  <span className="text-2xl font-bold text-primary-800">
+                    {user?.name?.charAt(0).toUpperCase() || 'U'}
+                  </span>
+                </div>
+              </div>
+              <div className="ml-4">
+                <h3 className="text-lg font-medium text-gray-900">{user?.name}</h3>
+                <p className="text-sm text-gray-500">@{user?.username}</p>
+              </div>
+            </div>
+            
+            <h4 className="text-md font-medium text-gray-900 mb-4">Account Information</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Name</label>
+                <label className="block text-sm font-medium text-gray-700">Username</label>
+                <p className="mt-1 text-sm text-gray-900">{user?.username}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Full Name</label>
                 <p className="mt-1 text-sm text-gray-900">{user?.name}</p>
               </div>
               <div>
@@ -154,12 +186,6 @@ const Profile = () => {
                 <label className="block text-sm font-medium text-gray-700">Member Since</label>
                 <p className="mt-1 text-sm text-gray-900">
                   {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Last Login</label>
-                <p className="mt-1 text-sm text-gray-900">
-                  {user?.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'Never'}
                 </p>
               </div>
             </div>
@@ -226,8 +252,35 @@ const Profile = () => {
 
       {/* Change Password Tab */}
       {activeTab === 'password' && (
-        <div className="card p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Change Password</h3>
+        <div className="space-y-6">
+          {/* Password Requirements */}
+          <div className="card p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Password Requirements</h3>
+            <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-blue-800">Password Security Guidelines</h3>
+                  <div className="mt-2 text-sm text-blue-700">
+                    <ul className="list-disc list-inside space-y-1">
+                      <li>Minimum 6 characters long</li>
+                      <li>Use a combination of letters, numbers, and symbols</li>
+                      <li>Avoid using personal information</li>
+                      <li>Don't reuse passwords from other accounts</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Change Password Form */}
+          <div className="card p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Change Password</h3>
           <form onSubmit={handlePasswordSubmit(onSubmitPassword)} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -297,6 +350,115 @@ const Profile = () => {
               </button>
             </div>
           </form>
+        </div>
+        </div>
+      )}
+
+      {/* Account Activity Tab */}
+      {activeTab === 'activity' && (
+        <div className="space-y-6">
+          {/* Account Summary */}
+          <div className="card p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Account Summary</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-primary-600">
+                  {user?.createdAt ? Math.floor((new Date() - new Date(user.createdAt)) / (1000 * 60 * 60 * 24)) : 0}
+                </div>
+                <div className="text-sm text-gray-500">Days Active</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-600">
+                  {user?.isActive ? 'Active' : 'Inactive'}
+                </div>
+                <div className="text-sm text-gray-500">Account Status</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">
+                  {user?.role}
+                </div>
+                <div className="text-sm text-gray-500">User Role</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Security Information */}
+          <div className="card p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Security Information</h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Account Created</p>
+                  <p className="text-sm text-gray-500">
+                    {user?.createdAt ? new Date(user.createdAt).toLocaleString() : 'N/A'}
+                  </p>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                  <span className="ml-2 text-sm text-gray-500">Verified</span>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Last Profile Update</p>
+                  <p className="text-sm text-gray-500">
+                    {user?.updatedAt ? new Date(user.updatedAt).toLocaleString() : 'Never'}
+                  </p>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                  <span className="ml-2 text-sm text-gray-500">Updated</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Account Actions */}
+          <div className="card p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Account Actions</h3>
+            <div className="space-y-3">
+              <button
+                onClick={() => setActiveTab('password')}
+                className="w-full flex items-center justify-between px-4 py-3 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center">
+                  <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
+                    <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                    </svg>
+                  </div>
+                  <div className="ml-3 text-left">
+                    <p className="text-sm font-medium text-gray-900">Change Password</p>
+                    <p className="text-sm text-gray-500">Update your account password</p>
+                  </div>
+                </div>
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('profile')}
+                className="w-full flex items-center justify-between px-4 py-3 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center">
+                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                  <div className="ml-3 text-left">
+                    <p className="text-sm font-medium text-gray-900">Edit Profile</p>
+                    <p className="text-sm text-gray-500">Update your personal information</p>
+                  </div>
+                </div>
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

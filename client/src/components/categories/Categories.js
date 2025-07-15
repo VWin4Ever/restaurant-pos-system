@@ -5,6 +5,8 @@ import * as yup from 'yup';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import LoadingSpinner from '../common/LoadingSpinner';
+import { MagnifyingGlassIcon, FunnelIcon, ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/outline';
+import { useAuth } from '../../contexts/AuthContext';
 
 const schema = yup.object({
   name: yup.string().required('Category name is required'),
@@ -12,11 +14,21 @@ const schema = yup.object({
 }).required();
 
 const Categories = () => {
+  const { hasPermission } = useAuth();
   const [categories, setCategories] = useState([]);
+  const [filteredCategories, setFilteredCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  
+  // Filter and search states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('');
+  const [selectedProductFilter, setSelectedProductFilter] = useState('');
+  const [sortBy, setSortBy] = useState('name');
+  const [sortOrder, setSortOrder] = useState('asc');
+  const [showFilters, setShowFilters] = useState(false);
 
   const {
     register,
@@ -31,15 +43,100 @@ const Categories = () => {
     fetchCategories();
   }, []);
 
+  useEffect(() => {
+    applyFilters();
+  }, [categories, searchTerm, selectedStatus, selectedProductFilter, sortBy, sortOrder]);
+
   const fetchCategories = async () => {
     try {
-      const response = await axios.get('/api/categories');
+      const response = await axios.get('/api/categories?includeInactive=true');
       setCategories(response.data.data);
     } catch (error) {
       console.error('Failed to fetch categories:', error);
       toast.error('Failed to load categories');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const applyFilters = () => {
+    let filtered = [...categories];
+
+    // Search filter
+    if (searchTerm) {
+      filtered = filtered.filter(category =>
+        category.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (category.description && category.description.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
+    }
+
+    // Status filter
+    if (selectedStatus === 'active') {
+      filtered = filtered.filter(category => category.isActive);
+    } else if (selectedStatus === 'inactive') {
+      filtered = filtered.filter(category => !category.isActive);
+    }
+
+    // Product count filter
+    if (selectedProductFilter === 'with_products') {
+      filtered = filtered.filter(category => (category._count?.products || 0) > 0);
+    } else if (selectedProductFilter === 'without_products') {
+      filtered = filtered.filter(category => (category._count?.products || 0) === 0);
+    }
+
+    // Sorting
+    filtered.sort((a, b) => {
+      let aValue, bValue;
+
+      switch (sortBy) {
+        case 'name':
+          aValue = a.name.toLowerCase();
+          bValue = b.name.toLowerCase();
+          break;
+        case 'products':
+          aValue = a._count?.products || 0;
+          bValue = b._count?.products || 0;
+          break;
+        case 'createdAt':
+          aValue = new Date(a.createdAt);
+          bValue = new Date(b.createdAt);
+          break;
+        default:
+          aValue = a.name.toLowerCase();
+          bValue = b.name.toLowerCase();
+      }
+
+      if (sortOrder === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+
+    setFilteredCategories(filtered);
+  };
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setSelectedStatus('');
+    setSelectedProductFilter('');
+    setSortBy('name');
+    setSortOrder('asc');
+  };
+
+  const getSortIcon = (field) => {
+    if (sortBy !== field) return null;
+    return sortOrder === 'asc' ? 
+      <ArrowUpIcon className="w-4 h-4" /> : 
+      <ArrowDownIcon className="w-4 h-4" />;
+  };
+
+  const handleSort = (field) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortOrder('asc');
     }
   };
 
@@ -122,12 +219,115 @@ const Categories = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">Categories</h1>
-        <button
-          onClick={() => openModal()}
-          className="btn-primary"
-        >
-          Add Category
-        </button>
+        {hasPermission('categories.create') && (
+          <button
+            onClick={() => openModal()}
+            className="btn-primary"
+          >
+            Add Category
+          </button>
+        )}
+      </div>
+
+      {/* Search and Filters */}
+      <div className="card">
+        <div className="p-4 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-medium text-gray-900">Search & Filters</h3>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center space-x-2 text-gray-600 hover:text-gray-900"
+            >
+              <FunnelIcon className="w-5 h-5" />
+              <span>Filters</span>
+            </button>
+          </div>
+          
+          {/* Search Bar */}
+          <div className="mt-4">
+            <div className="relative">
+              <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search categories..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+          </div>
+
+          {/* Advanced Filters */}
+          {showFilters && (
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => setSelectedStatus(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Products</label>
+                <select
+                  value={selectedProductFilter}
+                  onChange={(e) => setSelectedProductFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="">All Categories</option>
+                  <option value="with_products">With Products</option>
+                  <option value="without_products">Without Products</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="name">Name</option>
+                  <option value="products">Product Count</option>
+                  <option value="createdAt">Created Date</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Sort Order</label>
+                <button
+                  type="button"
+                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 flex items-center justify-between"
+                >
+                  <span>{sortOrder === 'asc' ? 'Ascending' : 'Descending'}</span>
+                  {sortOrder === 'asc' ? 
+                    <ArrowUpIcon className="w-4 h-4" /> : 
+                    <ArrowDownIcon className="w-4 h-4" />
+                  }
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Clear Filters */}
+          {(searchTerm || selectedStatus || selectedProductFilter || sortBy !== 'name' || sortOrder !== 'asc') && (
+            <div className="mt-4">
+              <button
+                onClick={clearFilters}
+                className="text-sm text-gray-600 hover:text-gray-900 underline"
+              >
+                Clear all filters
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Categories Overview */}
@@ -139,7 +339,7 @@ const Categories = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Categories</p>
-              <p className="text-2xl font-semibold text-gray-900">{categories.length}</p>
+              <p className="text-2xl font-semibold text-gray-900">{filteredCategories.length}</p>
             </div>
           </div>
         </div>
@@ -152,7 +352,7 @@ const Categories = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Active Categories</p>
               <p className="text-2xl font-semibold text-gray-900">
-                {categories.filter(cat => cat.isActive).length}
+                {filteredCategories.filter(cat => cat.isActive).length}
               </p>
             </div>
           </div>
@@ -166,7 +366,7 @@ const Categories = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Products</p>
               <p className="text-2xl font-semibold text-gray-900">
-                {categories.reduce((total, cat) => total + (cat._count?.products || 0), 0)}
+                {filteredCategories.reduce((total, cat) => total + (cat._count?.products || 0), 0)}
               </p>
             </div>
           </div>
@@ -182,20 +382,38 @@ const Categories = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Category Name
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('name')}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Category Name</span>
+                    {getSortIcon('name')}
+                  </div>
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Description
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Products
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('products')}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Products</span>
+                    {getSortIcon('products')}
+                  </div>
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Created
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('createdAt')}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Created</span>
+                    {getSortIcon('createdAt')}
+                  </div>
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
@@ -203,60 +421,82 @@ const Categories = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {categories.map((category) => (
-                <tr key={category.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900">{category.name}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-600 max-w-xs truncate">
-                      {category.description || 'No description'}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {category._count?.products || 0} products
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      category.isActive 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {category.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(category.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => openModal(category)}
-                        className="text-primary-600 hover:text-primary-900"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => toggleActive(category.id, category.isActive)}
-                        className={`${
-                          category.isActive 
-                            ? 'text-yellow-600 hover:text-yellow-900' 
-                            : 'text-green-600 hover:text-green-900'
-                        }`}
-                      >
-                        {category.isActive ? 'Deactivate' : 'Activate'}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(category.id)}
-                        className="text-red-600 hover:text-red-900"
-                        disabled={category._count?.products > 0}
-                      >
-                        Delete
-                      </button>
+              {filteredCategories.length > 0 ? (
+                filteredCategories.map((category) => (
+                  <tr key={category.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-gray-900">{category.name}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-600 max-w-xs truncate">
+                        {category.description || 'No description'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {category._count?.products || 0} products
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        category.isActive 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {category.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {new Date(category.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex space-x-2">
+                        {hasPermission('categories.edit') && (
+                          <button
+                            onClick={() => openModal(category)}
+                            className="text-primary-600 hover:text-primary-900"
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {hasPermission('categories.edit') && (
+                          <button
+                            onClick={() => toggleActive(category.id, category.isActive)}
+                            className={`${
+                              category.isActive 
+                                ? 'text-yellow-600 hover:text-yellow-900' 
+                                : 'text-green-600 hover:text-green-900'
+                            }`}
+                          >
+                            {category.isActive ? 'Deactivate' : 'Activate'}
+                          </button>
+                        )}
+                        {hasPermission('categories.delete') && (
+                          <button
+                            onClick={() => handleDelete(category.id)}
+                            className="text-red-600 hover:text-red-900"
+                            disabled={category._count?.products > 0}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="6" className="px-6 py-12 text-center">
+                    <div className="text-gray-500">
+                      <div className="text-lg font-medium mb-2">No categories found</div>
+                      <div className="text-sm">
+                        {searchTerm || selectedStatus || selectedProductFilter 
+                          ? 'Try adjusting your search or filters'
+                          : 'Create your first category to get started'
+                        }
+                      </div>
                     </div>
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

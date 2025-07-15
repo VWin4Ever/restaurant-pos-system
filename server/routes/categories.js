@@ -1,12 +1,13 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
+const { requirePermission } = require('../middleware/permissions');
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
 // Get all categories
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('categories.view'), async (req, res) => {
   try {
     const { includeInactive = 'false' } = req.query;
     
@@ -41,7 +42,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get category by ID
-router.get('/:id', async (req, res) => {
+router.get('/:id', requirePermission('categories.view'), async (req, res) => {
   try {
     const category = await prisma.category.findUnique({
       where: { id: parseInt(req.params.id) },
@@ -74,7 +75,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create new category
-router.post('/', [
+router.post('/', requirePermission('categories.create'), [
   body('name').notEmpty().withMessage('Category name is required'),
   body('description').optional().isString()
 ], async (req, res) => {
@@ -112,7 +113,7 @@ router.post('/', [
 });
 
 // Update category
-router.put('/:id', [
+router.put('/:id', requirePermission('categories.edit'), [
   body('name').notEmpty().withMessage('Category name is required'),
   body('description').optional().isString()
 ], async (req, res) => {
@@ -152,7 +153,7 @@ router.put('/:id', [
 });
 
 // Toggle category active status
-router.patch('/:id', [
+router.patch('/:id', requirePermission('categories.edit'), [
   body('isActive').isBoolean().withMessage('isActive must be a boolean')
 ], async (req, res) => {
   try {
@@ -188,7 +189,7 @@ router.patch('/:id', [
 });
 
 // Delete category (soft delete)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requirePermission('categories.delete'), async (req, res) => {
   try {
     const categoryId = parseInt(req.params.id);
 

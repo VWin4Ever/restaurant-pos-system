@@ -13,6 +13,7 @@ const productRoutes = require('./routes/products');
 const orderRoutes = require('./routes/orders');
 const stockRoutes = require('./routes/stock');
 const reportRoutes = require('./routes/reports');
+const settingsRoutes = require('./routes/settings');
 
 const { authenticateToken, authorizeRole } = require('./middleware/auth');
 const errorHandler = require('./middleware/errorHandler');
@@ -67,11 +68,12 @@ app.use('/api/auth', authRoutes);
 // Protected routes
 app.use('/api/users', authenticateToken, authorizeRole(['ADMIN']), userRoutes);
 app.use('/api/tables', authenticateToken, tableRoutes);
-app.use('/api/categories', authenticateToken, authorizeRole(['ADMIN']), categoryRoutes);
-app.use('/api/products', authenticateToken, authorizeRole(['ADMIN']), productRoutes);
+app.use('/api/categories', authenticateToken, categoryRoutes);
+app.use('/api/products', authenticateToken, productRoutes);
 app.use('/api/orders', authenticateToken, orderRoutes);
 app.use('/api/stock', authenticateToken, authorizeRole(['ADMIN']), stockRoutes);
-app.use('/api/reports', authenticateToken, authorizeRole(['ADMIN']), reportRoutes);
+app.use('/api/reports', authenticateToken, reportRoutes);
+app.use('/api/settings', authenticateToken, authorizeRole(['ADMIN']), settingsRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

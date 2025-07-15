@@ -59,6 +59,15 @@ class WebSocketServer {
     });
   }
   
+  // Send order update
+  sendOrderUpdate(orderData) {
+    this.broadcast({
+      type: 'order_update',
+      ...orderData,
+      timestamp: new Date().toISOString()
+    });
+  }
+  
   // Get connected clients count
   getConnectedClientsCount() {
     return this.clients.size;

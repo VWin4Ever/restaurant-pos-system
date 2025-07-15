@@ -1,12 +1,13 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const dayjs = require('dayjs');
+const { requirePermission } = require('../middleware/permissions');
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
 // Get dashboard summary with date range
-router.get('/dashboard', async (req, res) => {
+router.get('/dashboard', requirePermission('reports.view'), async (req, res) => {
   try {
     const { range = 'today' } = req.query;
     
@@ -92,7 +93,7 @@ router.get('/dashboard', async (req, res) => {
 });
 
 // Get sales data with date range
-router.get('/sales', async (req, res) => {
+router.get('/sales', requirePermission('reports.view'), async (req, res) => {
   try {
     const { range = 'today' } = req.query;
     
@@ -181,7 +182,7 @@ router.get('/sales', async (req, res) => {
 });
 
 // Get top products with date range
-router.get('/top-products', async (req, res) => {
+router.get('/top-products', requirePermission('reports.view'), async (req, res) => {
   try {
     const { range = 'today' } = req.query;
     
@@ -269,7 +270,7 @@ router.get('/top-products', async (req, res) => {
 });
 
 // Export sales report as CSV
-router.get('/export', async (req, res) => {
+router.get('/export', requirePermission('reports.export'), async (req, res) => {
   try {
     const { range = 'today' } = req.query;
     
@@ -344,7 +345,7 @@ router.get('/export', async (req, res) => {
 });
 
 // Get order statistics
-router.get('/order-stats', async (req, res) => {
+router.get('/order-stats', requirePermission('reports.view'), async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
@@ -388,7 +389,7 @@ router.get('/order-stats', async (req, res) => {
 });
 
 // Get stock report
-router.get('/stock', async (req, res) => {
+router.get('/stock', requirePermission('stock.view'), async (req, res) => {
   try {
     const { lowStock, page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -447,8 +448,76 @@ router.get('/stock', async (req, res) => {
   }
 });
 
+// Get cashier dashboard data
+router.get('/cashier-dashboard', requirePermission('system.dashboard'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Get cashier's orders today
+    const myOrdersToday = await prisma.order.count({
+      where: {
+        userId: userId,
+        createdAt: {
+          gte: today,
+          lt: tomorrow
+        }
+      }
+    });
+
+    // Get cashier's sales today
+    const mySalesToday = await prisma.order.aggregate({
+      where: {
+        userId: userId,
+        status: 'COMPLETED',
+        createdAt: {
+          gte: today,
+          lt: tomorrow
+        }
+      },
+      _sum: {
+        total: true
+      }
+    });
+
+    // Get pending orders (all orders, not just cashier's)
+    const pendingOrders = await prisma.order.count({
+      where: {
+        status: 'PENDING'
+      }
+    });
+
+    // Get available tables
+    const availableTables = await prisma.table.count({
+      where: {
+        status: 'AVAILABLE',
+        isActive: true
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        myOrdersToday,
+        mySalesToday: mySalesToday._sum.total || 0,
+        pendingOrders,
+        availableTables
+      }
+    });
+  } catch (error) {
+    console.error('Get cashier dashboard error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get cashier dashboard data'
+    });
+  }
+});
+
 // Get cashier performance
-router.get('/cashier-performance', async (req, res) => {
+router.get('/cashier-performance', requirePermission('reports.view'), async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 

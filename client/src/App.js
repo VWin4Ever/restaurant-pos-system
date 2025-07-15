@@ -1,10 +1,12 @@
 import React, { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
+import { SettingsProvider } from './contexts/SettingsContext';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import axios from 'axios';
 import { API_BASE_URL } from './config';
+import websocketService from './services/websocket';
 
 // Components
 import Login from './components/auth/Login';
@@ -18,6 +20,7 @@ import Stock from './components/stock/Stock';
 import Users from './components/users/Users';
 import Reports from './components/reports/Reports';
 import Profile from './components/profile/Profile';
+import Settings from './components/settings/Settings';
 import LoadingSpinner from './components/common/LoadingSpinner';
 
 // Set up axios base URL
@@ -43,15 +46,35 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
 };
 
 function App() {
-  const { loading, isAuthenticated } = useAuth();
+  const { loading, isAuthenticated, hasPermission } = useAuth();
+
+  // Initialize WebSocket connection when user is authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      // Connect to WebSocket with a small delay to ensure server is ready
+      const connectWebSocket = () => {
+        setTimeout(() => {
+          websocketService.connect();
+        }, 1000);
+      };
+      
+      connectWebSocket();
+      
+      // Cleanup on unmount
+      return () => {
+        websocketService.disconnect();
+      };
+    }
+  }, [isAuthenticated]);
 
   if (loading) {
     return <LoadingSpinner />;
   }
 
   return (
-    <div className="App">
-      <Routes>
+    <SettingsProvider>
+      <div className="App">
+        <Routes>
         {/* Public Routes */}
         <Route 
           path="/login" 
@@ -73,24 +96,21 @@ function App() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="orders" element={<Orders />} />
           <Route path="tables" element={<Tables />} />
-          
-          {/* Admin Only Routes */}
+          {/* Products route: permission-based */}
           <Route
             path="products"
             element={
-              <ProtectedRoute allowedRoles={['ADMIN']}>
-                <Products />
-              </ProtectedRoute>
+              hasPermission('products.view') ? <Products /> : <Navigate to="/dashboard" replace />
             }
           />
+          {/* Categories route: permission-based */}
           <Route
             path="categories"
             element={
-              <ProtectedRoute allowedRoles={['ADMIN']}>
-                <Categories />
-              </ProtectedRoute>
+              hasPermission('categories.view') ? <Categories /> : <Navigate to="/dashboard" replace />
             }
           />
+          {/* Admin Only Routes */}
           <Route
             path="stock"
             element={
@@ -115,6 +135,14 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="settings"
+            element={
+              <ProtectedRoute allowedRoles={['ADMIN']}>
+                <Settings />
+              </ProtectedRoute>
+            }
+          />
           <Route path="profile" element={<Profile />} />
         </Route>
 
@@ -135,7 +163,8 @@ function App() {
         pauseOnHover
         theme="light"
       />
-    </div>
+      </div>
+    </SettingsProvider>
   );
 }
 

@@ -6,6 +6,7 @@ import axios from 'axios';
 import { toast } from 'react-toastify';
 import LoadingSpinner from '../common/LoadingSpinner';
 import { MagnifyingGlassIcon, FunnelIcon, ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/outline';
+import { useAuth } from '../../contexts/AuthContext';
 
 const schema = yup.object({
   name: yup.string().required('Product name is required'),
@@ -17,6 +18,7 @@ const schema = yup.object({
 }).required();
 
 const Products = () => {
+  const { hasPermission } = useAuth();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,7 +32,7 @@ const Products = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedType, setSelectedType] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('active');
+  const [selectedStatus, setSelectedStatus] = useState('');
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
   const [sortBy, setSortBy] = useState('name');
@@ -241,7 +243,7 @@ const Products = () => {
     setSearchTerm('');
     setSelectedCategory('');
     setSelectedType('');
-    setSelectedStatus('active');
+    setSelectedStatus('');
     setMinPrice('');
     setMaxPrice('');
     setSortBy('name');
@@ -276,24 +278,30 @@ const Products = () => {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">Products</h1>
         <div className="flex space-x-2">
-          <button
-            onClick={() => setShowImportModal(true)}
-            className="btn-secondary"
-          >
-            Import
-          </button>
-          <button
-            onClick={handleExport}
-            className="btn-secondary"
-          >
-            Export
-          </button>
-          <button
-            onClick={() => openModal()}
-            className="btn-primary"
-          >
-            Add Product
-          </button>
+          {hasPermission('products.import') && (
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="btn-secondary"
+            >
+              Import
+            </button>
+          )}
+          {hasPermission('products.export') && (
+            <button
+              onClick={handleExport}
+              className="btn-secondary"
+            >
+              Export
+            </button>
+          )}
+          {hasPermission('products.create') && (
+            <button
+              onClick={() => openModal()}
+              className="btn-primary"
+            >
+              Add Product
+            </button>
+          )}
         </div>
       </div>
 
@@ -393,7 +401,7 @@ const Products = () => {
           )}
 
           {/* Clear Filters */}
-          {(searchTerm || selectedCategory || selectedType || selectedStatus !== 'active' || minPrice || maxPrice) && (
+          {(searchTerm || selectedCategory || selectedType || selectedStatus || minPrice || maxPrice) && (
             <div className="mt-4">
               <button
                 onClick={clearFilters}
@@ -460,8 +468,12 @@ const Products = () => {
                         alt={product.name}
                         className="w-12 h-12 object-cover rounded-md"
                         onError={(e) => {
-                          e.target.style.display = 'none';
-                          e.target.nextSibling.style.display = 'block';
+                          if (e.target && e.target.style) {
+                            e.target.style.display = 'none';
+                          }
+                          if (e.target && e.target.nextSibling && e.target.nextSibling.style) {
+                            e.target.nextSibling.style.display = 'block';
+                          }
                         }}
                       />
                     ) : (
@@ -504,28 +516,34 @@ const Products = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex space-x-2">
-                      <button
-                        onClick={() => openModal(product)}
-                        className="text-primary-600 hover:text-primary-900"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => toggleActive(product.id, product.isActive)}
-                        className={`${
-                          product.isActive 
-                            ? 'text-yellow-600 hover:text-yellow-900' 
-                            : 'text-green-600 hover:text-green-900'
-                        }`}
-                      >
-                        {product.isActive ? 'Deactivate' : 'Activate'}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(product.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        Delete
-                      </button>
+                      {hasPermission('products.edit') && (
+                        <button
+                          onClick={() => openModal(product)}
+                          className="text-primary-600 hover:text-primary-900"
+                        >
+                          Edit
+                        </button>
+                      )}
+                      {hasPermission('products.edit') && (
+                        <button
+                          onClick={() => toggleActive(product.id, product.isActive)}
+                          className={`${
+                            product.isActive 
+                              ? 'text-yellow-600 hover:text-yellow-900' 
+                              : 'text-green-600 hover:text-green-900'
+                          }`}
+                        >
+                          {product.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                      )}
+                      {hasPermission('products.delete') && (
+                        <button
+                          onClick={() => handleDelete(product.id)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

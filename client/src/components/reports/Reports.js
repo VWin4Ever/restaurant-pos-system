@@ -6,7 +6,9 @@ import LoadingSpinner from '../common/LoadingSpinner';
 const Reports = () => {
   const [dashboardData, setDashboardData] = useState(null);
   const [salesData, setSalesData] = useState([]);
+  const [recentOrders, setRecentOrders] = useState([]);
   const [topProducts, setTopProducts] = useState([]);
+  const [orderStats, setOrderStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState('today');
   const [exporting, setExporting] = useState(false);
@@ -17,15 +19,19 @@ const Reports = () => {
 
   const fetchReportsData = async () => {
     try {
-      const [dashboardRes, salesRes, productsRes] = await Promise.all([
+      const [dashboardRes, salesRes, productsRes, ordersRes, statsRes] = await Promise.all([
         axios.get(`/api/reports/dashboard?range=${dateRange}`),
         axios.get(`/api/reports/sales?range=${dateRange}`),
-        axios.get(`/api/reports/top-products?range=${dateRange}`)
+        axios.get(`/api/reports/top-products?range=${dateRange}`),
+        axios.get(`/api/orders?status=COMPLETED&limit=10`),
+        axios.get(`/api/reports/order-stats?startDate=${getStartDate()}&endDate=${getEndDate()}`)
       ]);
       
       setDashboardData(dashboardRes.data.data);
       setSalesData(salesRes.data.data);
       setTopProducts(productsRes.data.data);
+      setRecentOrders(ordersRes.data.data);
+      setOrderStats(statsRes.data.data);
     } catch (error) {
       console.error('Failed to fetch reports data:', error);
       toast.error('Failed to load reports data');
@@ -73,6 +79,42 @@ const Reports = () => {
       year: 'This Year'
     };
     return labels[range] || range;
+  };
+
+  const getStartDate = () => {
+    const now = new Date();
+    switch (dateRange) {
+      case 'today':
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      case 'week':
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() - now.getDay());
+        return new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate()).toISOString();
+      case 'month':
+        return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      case 'year':
+        return new Date(now.getFullYear(), 0, 1).toISOString();
+      default:
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    }
+  };
+
+  const getEndDate = () => {
+    const now = new Date();
+    switch (dateRange) {
+      case 'today':
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
+      case 'week':
+        const weekEnd = new Date(now);
+        weekEnd.setDate(now.getDate() - now.getDay() + 6);
+        return new Date(weekEnd.getFullYear(), weekEnd.getMonth(), weekEnd.getDate(), 23, 59, 59).toISOString();
+      case 'month':
+        return new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
+      case 'year':
+        return new Date(now.getFullYear(), 11, 31, 23, 59, 59).toISOString();
+      default:
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
+    }
   };
 
   if (loading) {
@@ -184,6 +226,56 @@ const Reports = () => {
         </div>
       )}
 
+      {/* Order Statistics */}
+      {orderStats && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="card p-6">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-3 rounded-lg bg-indigo-100">
+                <span className="text-2xl">📋</span>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Total Orders</p>
+                <p className="text-2xl font-semibold text-gray-900">
+                  {orderStats.totalOrders || 0}
+                </p>
+                <p className="text-sm text-gray-500">all time</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-6">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-3 rounded-lg bg-green-100">
+                <span className="text-2xl">✅</span>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Completed</p>
+                <p className="text-2xl font-semibold text-gray-900">
+                  {orderStats.byStatus?.find(s => s.status === 'COMPLETED')?._count || 0}
+                </p>
+                <p className="text-sm text-gray-500">orders</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-6">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-3 rounded-lg bg-red-100">
+                <span className="text-2xl">❌</span>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Cancelled</p>
+                <p className="text-2xl font-semibold text-gray-900">
+                  {orderStats.byStatus?.find(s => s.status === 'CANCELLED')?._count || 0}
+                </p>
+                <p className="text-sm text-gray-500">orders</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Sales Chart */}
         <div className="card">
@@ -279,34 +371,48 @@ const Reports = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {salesData.slice(0, 10).map((sale) => (
-                <tr key={sale.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {sale.orderNumber}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    Table {sale.tableNumber}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {sale.itemCount} items
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {formatCurrency(sale.total)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      sale.paymentMethod === 'CASH' 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-blue-100 text-blue-800'
-                    }`}>
-                      {sale.paymentMethod}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(sale.createdAt).toLocaleDateString()}
+              {recentOrders.length > 0 ? (
+                recentOrders.map((order) => {
+                  const itemCount = order.orderItems?.reduce((sum, item) => sum + item.quantity, 0) || 0;
+                  return (
+                    <tr key={order.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {order.orderNumber}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        Table {order.table?.number || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {itemCount} items
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {formatCurrency(order.total)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          order.paymentMethod === 'CASH' 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {order.paymentMethod || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(order.createdAt).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan="6" className="px-6 py-12 text-center">
+                    <div className="text-gray-500">
+                      <div className="text-lg font-medium mb-2">No recent orders</div>
+                      <div className="text-sm">No completed orders found for this period.</div>
+                    </div>
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

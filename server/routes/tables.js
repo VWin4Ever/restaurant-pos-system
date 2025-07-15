@@ -1,5 +1,6 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
+const { requirePermission } = require('../middleware/permissions');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -70,7 +71,7 @@ router.patch('/:id/status', async (req, res) => {
       where: {
         tableId: tableId,
         status: {
-          in: ['PENDING', 'PREPARING', 'READY']
+          in: ['PENDING']
         }
       }
     });
@@ -115,8 +116,8 @@ router.patch('/:id/status', async (req, res) => {
   }
 });
 
-// Create a new table
-router.post('/', async (req, res) => {
+// Create a new table (Admin only)
+router.post('/', requirePermission('tables.create'), async (req, res) => {
   try {
     const { number, capacity, group } = req.body;
     if (!number || !capacity) {
@@ -154,8 +155,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Update a table (number/capacity/group)
-router.put('/:id', async (req, res) => {
+// Update a table (number/capacity/group) (Admin only)
+router.put('/:id', requirePermission('tables.edit'), async (req, res) => {
   try {
     const tableId = parseInt(req.params.id);
     const { number, capacity, group } = req.body;
@@ -193,8 +194,8 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// Soft delete a table (set isActive to false)
-router.delete('/:id', async (req, res) => {
+// Soft delete a table (set isActive to false) (Admin only)
+router.delete('/:id', requirePermission('tables.delete'), async (req, res) => {
   try {
     const tableId = parseInt(req.params.id);
     await prisma.table.update({

@@ -96,9 +96,16 @@ router.get('/profile', authenticateToken, async (req, res) => {
       }
     });
 
+    // Get user permissions
+    const { getUserPermissions } = require('../middleware/permissions');
+    const permissions = getUserPermissions(user.role);
+
     res.json({
       success: true,
-      data: user
+      data: {
+        ...user,
+        permissions
+      }
     });
   } catch (error) {
     console.error('Get profile error:', error);
