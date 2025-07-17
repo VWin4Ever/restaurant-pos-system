@@ -252,21 +252,19 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
   if (step === 'table') {
     return (
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center">
-        <div className="relative mx-auto px-4 py-6 w-full max-w-4xl shadow-large rounded-2xl bg-background max-h-[90vh] overflow-hidden">
-          <div className="w-full max-w-3xl mx-auto">
+        <div className="relative mx-auto px-4 py-6 w-full max-w-2xl shadow-large rounded-2xl bg-background max-h-[90vh] overflow-hidden">
+          <div className="w-full max-w-xl mx-auto">
             <div className="mb-6 text-center">
               <div className="mb-4 flex justify-center">
-                <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-700 rounded-full flex items-center justify-center shadow-soft">
+                <div className="w-16 h-16 bg-success rounded-full flex items-center justify-center shadow-soft">
                   <Icon name="table" className="w-8 h-8 text-white" />
                 </div>
               </div>
-              <h2 className="text-2xl font-bold text-text-primary mb-2">Select a Table</h2>
-              <p className="text-text-secondary text-base">Choose a table to start a new order</p>
             </div>
             
             {/* Table selection grid */}
             <div className="max-h-[60vh] overflow-y-auto custom-scrollbar">
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-4 gap-4">
                 {tables.map(table => {
                   const isAvailable = table.status === 'AVAILABLE' || table.status === 'RESERVED';
                   return (
@@ -278,36 +276,29 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
                         setValue('tableId', table.id);
                         setStep('order');
                       }}
-                                              className={`group flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200 hover:scale-[1.02] focus:outline-none focus:ring-4 focus:ring-primary-500/20 text-center min-h-[140px] ${
-                          isAvailable 
-                            ? 'border-primary-600 hover:border-primary-700 bg-gradient-to-br from-primary-50 to-surface hover:from-primary-100 hover:to-surfaceHover shadow-soft' 
-                            : 'border-neutral-200 bg-neutral-50 opacity-50 cursor-not-allowed'
-                        }`}
+                      className={`group flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200 hover:scale-[1.02] focus:outline-none focus:ring-4 focus:ring-primary-500/20 text-center min-h-[120px] ${
+                        isAvailable 
+                          ? 'border-neutral-200 bg-neutral-50 hover:bg-neutral-100 shadow-soft' 
+                          : 'border-neutral-200 bg-neutral-50 opacity-50 cursor-not-allowed'
+                      }`}
                       disabled={!isAvailable}
                       tabIndex={0}
                       role="button"
                       aria-label={`Select Table ${table.number} (${table.status})`}
                     >
-                      <div className="mb-3 flex justify-center">
-                        <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                          table.status === 'AVAILABLE' 
-                            ? 'bg-success text-white' 
-                            : table.status === 'RESERVED' 
-                              ? 'bg-warning text-white' 
-                              : 'bg-neutral-400 text-white'
-                        }`}>
-                          <Icon 
-                            name={table.status === 'AVAILABLE' ? 'check' : table.status === 'RESERVED' ? 'clock' : 'close'} 
-                            className="w-6 h-6" 
-                          />
+                      {isAvailable ? (
+                        <>
+                          <div className="text-lg font-bold text-text-primary mb-2 self-start">Table {table.number}</div>
+                          <div className="flex-1 flex items-center justify-center mb-2">
+                            <Icon name="table" className="w-8 h-8 text-text-primary" />
+                          </div>
+                          <div className="text-sm font-medium text-success">Available</div>
+                        </>
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <div className="w-8 h-8 bg-neutral-200 rounded-lg"></div>
                         </div>
-                      </div>
-                      <div className="font-bold text-lg mb-1 text-text-primary">Table {table.number}</div>
-                      <div className="text-sm text-text-secondary mb-1 capitalize">{table.status.toLowerCase()}</div>
-                      <div className="text-xs text-text-muted flex items-center justify-center gap-1">
-                        <Icon name="users" className="w-4 h-4" />
-                        Capacity: {table.capacity}
-                      </div>
+                      )}
                     </button>
                   );
                 })}
@@ -331,8 +322,8 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm h-full w-full z-50">
-      <div className="relative mx-auto px-4 py-6 w-full max-w-screen-2xl shadow-large rounded-2xl bg-background max-h-[90vh] overflow-hidden">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm h-full w-full z-50 flex items-center justify-center">
+              <div className="relative mx-auto px-4 py-6 w-full max-w-screen-2xl shadow-large rounded-2xl bg-background h-[90vh] overflow-hidden">
         <form onSubmit={handleSubmit(onSubmit)} className="w-full h-full">
           <div className="flex flex-col lg:flex-row lg:gap-8 w-full h-full">
             {/* Products Section */}
@@ -384,7 +375,7 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
               </div>
               
               {/* Products Grid */}
-              <div className="flex-1 overflow-y-auto custom-scrollbar">
+              <div className="flex-1 overflow-y-auto custom-scrollbar" style={{ minHeight: '60vh' }}>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-6">
                   {filteredProducts.length === 0 ? (
                     <div className="col-span-full text-center text-text-muted py-12">

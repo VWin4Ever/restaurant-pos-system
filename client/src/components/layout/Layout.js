@@ -37,7 +37,7 @@ const Layout = () => {
   };
 
   return (
-    <div className="h-screen flex overflow-hidden bg-gradient-to-br from-background to-surface">
+    <div className="h-screen flex overflow-hidden bg-gray-200">
       {/* Mobile sidebar */}
       <div className={`fixed inset-0 flex z-40 md:hidden ${sidebarOpen ? '' : 'hidden'}`}>
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSidebarOpen(false)}></div>
@@ -51,17 +51,21 @@ const Layout = () => {
               <Icon name="close" className="text-white" />
             </button>
           </div>
-          <div className="flex-1 h-0 pt-5 pb-4 overflow-y-auto custom-scrollbar">
-            <div className="flex-shrink-0 flex items-center px-4">
-              <img
-                src={logo}
-                alt="Angkor Holiday Hotel Logo"
-                className="h-10 w-auto mr-3 rounded-lg shadow"
-                style={{ background: 'white' }} // Optional: white background for contrast
-              />
-              <h1 className="text-xl font-bold text-gradient">Angkor Holiday Hotel</h1>
+          <div className="flex-1 h-0 pt-2 pb-4 overflow-y-auto custom-scrollbar">
+            <div className="flex-shrink-0 flex flex-col items-center px-4">
+                              <img
+                  src={logo}
+                  alt="Angkor Holiday Hotel Logo"
+                  className="h-16 w-auto mb-1 rounded-xl shadow-soft"
+                  style={{ background: 'white' }}
+                />
+              <h1 className="text-lg font-bold text-center">
+                <span className="text-primary-700">Angkor Holiday</span>
+                <br />
+                <span className="text-accent-600">Hotel</span>
+              </h1>
             </div>
-            <nav className="mt-8 px-2 space-y-2">
+            <nav className="px-2 space-y-2">
               {navigation.map((item, index) => {
                 const isActive = location.pathname === item.href;
                 return (
@@ -69,11 +73,11 @@ const Layout = () => {
                     key={item.name}
                     to={item.href}
                     onClick={() => setSidebarOpen(false)}
-                    className={`group flex items-center px-4 py-3 text-base font-medium rounded-xl transition-all duration-300 hover:transform hover:scale-105 animate-slide-up
-                      ${isActive ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white border-l-4 border-primary-600 font-bold shadow-soft' : 'text-text-secondary group-hover:text-primary-600 group-hover:bg-surface'}`}
+                    className={`group flex items-center px-4 py-3 text-lg font-bold rounded-xl transition-all duration-300 hover:transform hover:scale-105 animate-slide-up
+                      ${isActive ? 'bg-white text-primary-700 border-l-4 border-primary-600 font-bold shadow-soft' : 'text-text-secondary group-hover:text-primary-600 group-hover:bg-surface'}`}
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
-                    <div className={`mr-4 ${isActive ? 'icon-primary' : 'icon-container bg-neutral-100 text-neutral-600 group-hover:bg-primary-100 group-hover:text-primary-700'}`}>
+                    <div className={`mr-4 ${isActive ? 'icon-container bg-primary-100 text-primary-700' : 'icon-container bg-neutral-100 text-neutral-600 group-hover:bg-primary-100 group-hover:text-primary-700'}`}>
                       <Icon name={item.icon} />
                     </div>
                     <span>{item.name}</span>
@@ -89,28 +93,32 @@ const Layout = () => {
       <div className="hidden md:flex md:flex-shrink-0">
         <div className="flex flex-col w-64">
           <div className="flex flex-col h-0 flex-1 sidebar">
-            <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto custom-scrollbar">
-              <div className="flex items-center flex-shrink-0 px-4">
+            <div className="flex-1 flex flex-col pt-2 pb-4 overflow-y-auto custom-scrollbar">
+              <div className="flex flex-col items-center flex-shrink-0 px-4">
                 <img
                   src={logo}
                   alt="Angkor Holiday Hotel Logo"
-                  className="h-10 w-auto mr-3 rounded-lg shadow"
-                  style={{ background: 'white' }} // Optional: white background for contrast
+                  className="h-16 w-auto mb-1 rounded-xl shadow-soft"
+                  style={{ background: 'white' }}
                 />
-                <h1 className="text-xl font-bold text-gradient">Angkor Holiday Hotel</h1>
+                <h1 className="text-lg font-bold text-center mb-1">
+                  <span className="text-primary-700">Angkor Holiday</span>
+                  <br />
+                  <span className="text-accent-600">Hotel</span>
+                </h1>
               </div>
-              <nav className="mt-8 flex-1 px-2 space-y-2">
+              <nav className="flex-1 px-2 space-y-2">
                 {navigation.map((item, index) => {
                   const isActive = location.pathname === item.href;
                   return (
                     <Link
                       key={item.name}
                       to={item.href}
-                      className={`group flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all duration-300 hover:transform hover:scale-105 animate-slide-up
-                        ${isActive ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white border-l-4 border-primary-600 font-bold shadow-soft' : 'text-text-secondary group-hover:text-primary-600 group-hover:bg-surface'}`}
+                      className={`group flex items-center px-4 py-3 text-base font-bold rounded-xl transition-all duration-300 hover:transform hover:scale-105 animate-slide-up
+                        ${isActive ? 'bg-white text-primary-700 border-l-4 border-primary-600 font-bold shadow-soft' : 'text-text-secondary group-hover:text-primary-600 group-hover:bg-surface'}`}
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
-                      <div className={`mr-3 ${isActive ? 'icon-primary' : 'icon-container bg-neutral-100 text-neutral-600 group-hover:bg-primary-100 group-hover:text-primary-700'}`}>
+                      <div className={`mr-3 ${isActive ? 'icon-container bg-primary-100 text-primary-700' : 'icon-container bg-neutral-100 text-neutral-600 group-hover:bg-primary-100 group-hover:text-primary-700'}`}>
                         <Icon name={item.icon} />
                       </div>
                       <span>{item.name}</span>

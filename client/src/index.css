@@ -10,7 +10,7 @@
   }
   
   body {
-    @apply bg-background text-text-primary;
+    @apply bg-gray-200 text-text-primary;
     background-attachment: fixed;
   }
 
@@ -209,12 +209,13 @@
 
   /* Enhanced Sidebar */
   .sidebar {
-    @apply bg-gradient-to-b from-background to-surface backdrop-blur-sm border-r border-neutral-100 shadow-medium;
+    @apply bg-gradient-to-b from-primary-200 to-primary-300 backdrop-blur-sm border-r border-primary-400;
+    box-shadow: 4px 0 15px rgba(0, 0, 0, 0.1), 8px 0 25px rgba(0, 0, 0, 0.05);
   }
 
   /* Enhanced Header */
   .header {
-    @apply bg-background backdrop-blur-sm border-b border-neutral-100 shadow-soft;
+    @apply bg-gradient-to-r from-primary-200 to-primary-300 backdrop-blur-sm border-b border-primary-400 shadow-soft;
   }
 
   /* Enhanced Search Input */
