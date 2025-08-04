@@ -38,6 +38,19 @@ Ctrl + C
 # Check the terminal where you ran npm run dev
 ```
 
+## 🔄 Updating Your Project
+
+When the main project gets updated:
+
+### Windows Users:
+- Double-click `update-project.bat`
+
+### Mac/Linux Users:
+- Run: `./update-project.sh`
+
+### Manual Update:
+- Follow the detailed guide in `UPDATE_GUIDE.md`
+
 ## Default Login
 
 - **Admin**: `admin` / `admin123`
