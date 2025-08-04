@@ -1,8 +1,8 @@
 [phases.setup]
-nixPkgs = ["nodejs", "npm", "mysql"]
+nixPkgs = ["nodejs", "npm"]
 
 [phases.install]
-cmds = ["npm run install-all"]
+cmds = ["npm install"]
 
 [phases.build]
 cmds = ["npm run build"]
