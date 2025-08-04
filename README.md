@@ -37,12 +37,14 @@ A complete Point of Sale (POS) system designed specifically for restaurants with
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: Local Development
+
+#### Prerequisites
 - Node.js (v16 or higher)
 - MySQL (v8.0 or higher)
 - XAMPP (recommended for easy setup)
 
-### Installation
+#### Installation
 
 1. **Clone the repository**
    ```bash
@@ -73,6 +75,18 @@ A complete Point of Sale (POS) system designed specifically for restaurants with
 The application will be available at:
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:5000
+
+### Option 2: Deploy to Railway (Recommended for Friends)
+
+For easy online access, deploy to Railway:
+
+1. **Follow the deployment guide**: `RAILWAY_DEPLOYMENT.md`
+2. **Quick deployment**: `deploy-to-railway.md`
+3. **Your friends can access it online** without local setup!
+
+**Deployed URLs:**
+- Frontend: `https://your-app.netlify.app`
+- Backend API: `https://your-app.railway.app`
 
 ## Default Login Credentials
 

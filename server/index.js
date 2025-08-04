@@ -42,7 +42,8 @@ app.use(limiter);
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? [
-        'https://yourdomain.com',
+        process.env.FRONTEND_URL || 'https://yourdomain.com',
+        'https://*.railway.app',
         'https://*.netlify.app',
         'https://*.netlify.com'
       ] 
