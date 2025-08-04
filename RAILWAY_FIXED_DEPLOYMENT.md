@@ -2,11 +2,11 @@
 
 This guide addresses the MySQL/Nixpacks issue and provides a working deployment solution.
 
-## 🚨 Important: MySQL Issue Fixed
+## 🚨 Important: Build Issues Fixed
 
-The error you encountered was due to MySQL package naming in Nixpacks. We've fixed this by:
-- Removing MySQL from the build environment (Railway provides it as a service)
-- Simplifying the Nixpacks configuration
+The errors you encountered were due to package naming issues in Nixpacks. We've fixed this by:
+- Removing custom nixpacks.toml (let Railway use default detection)
+- Simplifying the Railway configuration
 - Adding proper ignore files
 
 ## 🚀 Step-by-Step Deployment
@@ -114,20 +114,19 @@ MAX_FILE_SIZE=10485760
 
 ## 🔧 Fixed Configuration Files
 
-### nixpacks.toml (Fixed)
-```toml
-[phases.setup]
-nixPkgs = ["nodejs", "npm"]
-
-[phases.install]
-cmds = ["npm install"]
-
-[phases.build]
-cmds = ["npm run build"]
-
-[start]
-cmd = "npm start"
+### railway.json (Simplified)
+```json
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "deploy": {
+    "numReplicas": 1,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
 ```
+
+**Note**: We removed the custom nixpacks.toml file to let Railway use its default Node.js detection.
 
 ### .railwayignore (New)
 ```
