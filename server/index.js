@@ -45,7 +45,8 @@ app.use(cors({
         process.env.FRONTEND_URL || 'https://yourdomain.com',
         'https://*.railway.app',
         'https://*.netlify.app',
-        'https://*.netlify.com'
+        'https://*.netlify.com',
+        'https://restaurantposmyv.netlify.app'
       ] 
     : ['http://localhost:3000', 'http://localhost:3001'],
   credentials: true
