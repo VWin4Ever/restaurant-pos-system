@@ -114,7 +114,13 @@ export const SettingsProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    fetchSettings();
+    // Only fetch settings if user is authenticated
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetchSettings();
+    } else {
+      setLoading(false);
+    }
   }, []);
 
   const value = {

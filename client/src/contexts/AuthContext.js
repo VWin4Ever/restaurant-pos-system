@@ -31,6 +31,8 @@ export const AuthProvider = ({ children }) => {
     const checkAuth = async () => {
       if (token) {
         try {
+          // Set authorization header
+          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
           const response = await axios.get('/api/auth/profile');
           setUser(response.data.data);
         } catch (error) {
@@ -56,6 +58,9 @@ export const AuthProvider = ({ children }) => {
       setUser(userData);
       setToken(authToken);
       localStorage.setItem('token', authToken);
+      
+      // Set authorization header for future requests
+      axios.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
       
       toast.success('Login successful!');
       return { success: true };
