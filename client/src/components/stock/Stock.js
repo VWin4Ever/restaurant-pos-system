@@ -5,6 +5,7 @@ import * as yup from 'yup';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import LoadingSpinner from '../common/LoadingSpinner';
+import ConfirmDialog from '../common/ConfirmDialog';
 import { MagnifyingGlassIcon, FunnelIcon, ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/outline';
 
 const schema = yup.object({
@@ -31,6 +32,7 @@ const Stock = () => {
   const [sortBy, setSortBy] = useState('productName');
   const [sortOrder, setSortOrder] = useState('asc');
   const [showFilters, setShowFilters] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState({ open: false });
 
   const {
     register,
@@ -155,6 +157,28 @@ const Stock = () => {
     }
   };
 
+  const showConfirm = ({ title, message, confirmText, cancelText, icon, type = 'warning' }) => {
+    return new Promise((resolve) => {
+      setConfirmDialog({
+        open: true,
+        title,
+        message,
+        confirmText,
+        cancelText,
+        icon,
+        type,
+        onConfirm: () => {
+          setConfirmDialog({ open: false });
+          resolve(true);
+        },
+        onCancel: () => {
+          setConfirmDialog({ open: false });
+          resolve(false);
+        }
+      });
+    });
+  };
+
   const openAdjustModal = (stockItem) => {
     setSelectedStock(stockItem);
     reset({
@@ -213,6 +237,14 @@ const Stock = () => {
     return { status: 'good', color: 'green', text: 'In Stock' };
   };
 
+  // Calculate statistics for drinks only
+  const stats = {
+    total: filteredStockItems.length,
+    inStock: filteredStockItems.filter(item => item.quantity > item.minStock).length,
+    lowStock: filteredStockItems.filter(item => item.quantity <= item.minStock && item.quantity > 0).length,
+    outOfStock: filteredStockItems.filter(item => item.quantity <= 0).length
+  };
+
   if (loading) {
     return <LoadingSpinner />;
   }
@@ -220,34 +252,79 @@ const Stock = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Stock Management</h1>
-        <div className="text-sm text-gray-600">
-          {stockItems.filter(item => item.quantity <= item.minStock && item.quantity > 0).length} items need restocking
+      <div className="card-gradient p-4 sm:p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
+        {/* Status Cards Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-2 rounded-lg bg-blue-100">
+                <span className="text-xl">🥤</span>
+              </div>
+              <div className="ml-3">
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.total}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">Total Drinks</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-2 rounded-lg bg-green-100">
+                <span className="text-xl">✅</span>
+              </div>
+              <div className="ml-3">
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.inStock}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">In Stock</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-2 rounded-lg bg-yellow-100">
+                <span className="text-xl">⚠️</span>
+              </div>
+              <div className="ml-3">
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.lowStock}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">Low Stock</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-2 rounded-lg bg-red-100">
+                <span className="text-xl">🚫</span>
+              </div>
+              <div className="ml-3">
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.outOfStock}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">Out of Stock</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Controls Row */}
+        <div className="flex flex-col sm:flex-row justify-end items-center gap-3 sm:gap-6 w-full">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="btn-secondary"
+          >
+            Filters
+          </button>
         </div>
       </div>
 
       {/* Search and Filters */}
-      <div className="card">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-medium text-gray-900">Search & Filters</h3>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center space-x-2 text-gray-600 hover:text-gray-900"
-            >
-              <FunnelIcon className="w-5 h-5" />
-              <span>Filters</span>
-            </button>
-          </div>
-          
+      {showFilters && (
+        <div className="card-gradient p-4">
           {/* Search Bar */}
-          <div className="mt-4">
+          <div className="mb-4">
             <div className="relative">
               <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search products or categories..."
+                placeholder="Search drinks or categories..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
@@ -256,69 +333,67 @@ const Stock = () => {
           </div>
 
           {/* Advanced Filters */}
-          {showFilters && (
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">All Status</option>
-                  <option value="good">In Stock</option>
-                  <option value="low">Low Stock</option>
-                  <option value="out">Out of Stock</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">All Categories</option>
-                  {categories.map(category => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="productName">Product Name</option>
-                  <option value="category">Category</option>
-                  <option value="quantity">Quantity</option>
-                  <option value="minStock">Min Stock</option>
-                  <option value="updatedAt">Last Updated</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Sort Order</label>
-                <button
-                  type="button"
-                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 flex items-center justify-between"
-                >
-                  <span>{sortOrder === 'asc' ? 'Ascending' : 'Descending'}</span>
-                  {sortOrder === 'asc' ? 
-                    <ArrowUpIcon className="w-4 h-4" /> : 
-                    <ArrowDownIcon className="w-4 h-4" />
-                  }
-                </button>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">All Status</option>
+                <option value="good">In Stock</option>
+                <option value="low">Low Stock</option>
+                <option value="out">Out of Stock</option>
+              </select>
             </div>
-          )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">All Categories</option>
+                {categories.map(category => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="productName">Product Name</option>
+                <option value="category">Category</option>
+                <option value="quantity">Quantity</option>
+                <option value="minStock">Min Stock</option>
+                <option value="updatedAt">Last Updated</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sort Order</label>
+              <button
+                type="button"
+                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 flex items-center justify-between"
+              >
+                <span>{sortOrder === 'asc' ? 'Ascending' : 'Descending'}</span>
+                {sortOrder === 'asc' ? 
+                  <ArrowUpIcon className="w-4 h-4" /> : 
+                  <ArrowDownIcon className="w-4 h-4" />
+                }
+              </button>
+            </div>
+          </div>
 
           {/* Clear Filters */}
           {(searchTerm || selectedStatus || selectedCategory || sortBy !== 'productName' || sortOrder !== 'asc') && (
@@ -332,53 +407,10 @@ const Stock = () => {
             </div>
           )}
         </div>
-      </div>
-
-      {/* Stock Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 p-3 rounded-lg bg-blue-100">
-              <span className="text-2xl">📦</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Items</p>
-              <p className="text-2xl font-semibold text-gray-900">{stockItems.length}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 p-3 rounded-lg bg-yellow-100">
-              <span className="text-2xl">⚠️</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Low Stock</p>
-              <p className="text-2xl font-semibold text-gray-900">
-                {stockItems.filter(item => item.quantity <= item.minStock && item.quantity > 0).length}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 p-3 rounded-lg bg-red-100">
-              <span className="text-2xl">🚫</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Out of Stock</p>
-              <p className="text-2xl font-semibold text-gray-900">
-                {stockItems.filter(item => item.quantity <= 0).length}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Stock Items Table */}
-      <div className="card">
+      <div className="card-gradient">
         <div className="px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-medium text-gray-900">Drink Inventory</h3>
         </div>
@@ -488,11 +520,12 @@ const Stock = () => {
                 <tr>
                   <td colSpan="6" className="px-6 py-12 text-center">
                     <div className="text-gray-500">
-                      <div className="text-lg font-medium mb-2">No stock items found</div>
+                      <div className="text-4xl mb-4">🥤</div>
+                      <div className="text-lg font-medium mb-2">No drink stock found</div>
                       <div className="text-sm">
                         {searchTerm || selectedStatus || selectedCategory 
                           ? 'Try adjusting your search or filters'
-                          : 'No stock items available. Add products to start managing inventory.'
+                          : 'No drink stock available. Add drink products to start managing inventory.'
                         }
                       </div>
                     </div>
@@ -506,8 +539,8 @@ const Stock = () => {
 
       {/* Stock Adjustment Modal */}
       {showAdjustModal && selectedStock && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-background rounded-2xl shadow-large p-6 max-w-md w-full mx-4">
             <div className="mt-3">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-medium text-gray-900">
@@ -608,8 +641,8 @@ const Stock = () => {
 
       {/* Stock History Modal */}
       {showLogsModal && selectedStock && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-background rounded-2xl shadow-large p-6 max-w-lg w-full mx-4">
             <div className="mt-3">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-medium text-gray-900">
@@ -652,6 +685,11 @@ const Stock = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Confirm Dialog */}
+      {confirmDialog.open && (
+        <ConfirmDialog {...confirmDialog} />
       )}
     </div>
   );

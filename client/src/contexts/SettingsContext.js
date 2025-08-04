@@ -88,10 +88,24 @@ export const SettingsProvider = ({ children }) => {
   const formatCurrency = (amount) => {
     if (amount === null || amount === undefined) return '$0.00';
     const currency = getCurrency();
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency
-    }).format(amount);
+    
+    try {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(amount);
+    } catch (error) {
+      // Fallback for unsupported currencies
+      console.warn(`Currency ${currency} not supported, falling back to USD`);
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(amount);
+    }
   };
 
   const calculateTax = (subtotal) => {

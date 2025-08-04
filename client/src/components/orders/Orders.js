@@ -21,12 +21,13 @@ const OrdersSkeleton = ({ rows = 5 }) => (
 );
 
 const Orders = () => {
-  // Helper function to get today's date in YYYY-MM-DD format
+  // Helper function to get today's date in YYYY-MM-DD format (UTC)
   const getTodayDate = () => {
     const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
+    // Use UTC to avoid timezone issues
+    const year = today.getUTCFullYear();
+    const month = String(today.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(today.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   };
 
@@ -42,8 +43,8 @@ const Orders = () => {
   const [filters, setFilters] = useState({
     status: '',
     tableId: '',
-    startDate: getTodayDate(), // Default to today
-    endDate: getTodayDate(),   // Default to today
+    startDate: '', // Don't filter by date by default
+    endDate: '',   // Don't filter by date by default
     search: ''
   });
   const [pagination, setPagination] = useState({
@@ -55,26 +56,36 @@ const Orders = () => {
   const [confirmDialog, setConfirmDialog] = useState({ open: false });
   const [isMobile, setIsMobile] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [dateRange, setDateRange] = useState('today');
+  const [dateRange, setDateRange] = useState('all');
 
-  // Helper to get date range for filter
+  // Helper to get date range for filter (UTC)
   const getDateRange = (range) => {
     const today = new Date();
     let startDate = '', endDate = '';
     if (range === 'today') {
       startDate = endDate = getTodayDate();
     } else if (range === 'week') {
-      const first = today.getDate() - today.getDay();
-      const last = first + 6;
-      const firstDay = new Date(today.setDate(first));
-      const lastDay = new Date(today.setDate(last));
-      startDate = firstDay.toISOString().slice(0, 10);
-      endDate = lastDay.toISOString().slice(0, 10);
+      // Get the start of the week (Sunday) in UTC
+      const dayOfWeek = today.getUTCDay();
+      const startOfWeek = new Date(today);
+      startOfWeek.setUTCDate(today.getUTCDate() - dayOfWeek);
+      
+      // Get the end of the week (Saturday) in UTC
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setUTCDate(startOfWeek.getUTCDate() + 6);
+      
+      startDate = startOfWeek.toISOString().slice(0, 10);
+      endDate = endOfWeek.toISOString().slice(0, 10);
     } else if (range === 'month') {
-      const y = today.getFullYear();
-      const m = today.getMonth();
-      startDate = new Date(y, m, 1).toISOString().slice(0, 10);
-      endDate = new Date(y, m + 1, 0).toISOString().slice(0, 10);
+      const y = today.getUTCFullYear();
+      const m = today.getUTCMonth();
+      const startOfMonth = new Date(Date.UTC(y, m, 1));
+      const endOfMonth = new Date(Date.UTC(y, m + 1, 0));
+      startDate = startOfMonth.toISOString().slice(0, 10);
+      endDate = endOfMonth.toISOString().slice(0, 10);
+    } else if (range === 'all') {
+      startDate = '';
+      endDate = '';
     } else {
       startDate = '';
       endDate = '';
@@ -309,9 +320,7 @@ const Orders = () => {
     const statusConfig = {
       PENDING: { class: 'order-status-pending', icon: 'clock' },
       COMPLETED: { class: 'order-status-completed', icon: 'check' },
-      CANCELLED: { class: 'order-status-cancelled', icon: 'close' },
-      PREPARING: { class: 'order-status-preparing', icon: 'clock' },
-      READY: { class: 'order-status-ready', icon: 'check' }
+      CANCELLED: { class: 'order-status-cancelled', icon: 'close' }
     };
     
     const config = statusConfig[status] || { class: 'order-status-pending', icon: 'warning' };
@@ -319,7 +328,7 @@ const Orders = () => {
     return (
       <span className={`order-status ${config.class} flex items-center gap-2`}>
         <Icon name={config.icon} size="sm" />
-        <span>{status === 'PREPARING' || status === 'READY' ? 'PENDING' : status}</span>
+        <span>{status}</span>
       </span>
     );
   };
@@ -374,42 +383,42 @@ const Orders = () => {
       )}
 
       {/* Header */}
-      <div className="card-gradient p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
+      <div className="card-gradient p-4 sm:p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
         {/* Status Cards Row */}
-        <div className="flex flex-row gap-8 items-center w-full lg:w-auto justify-center lg:justify-start">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
           {/* Pending */}
-          <div className="flex items-center bg-white rounded-2xl shadow-md px-8 py-5 min-w-[260px]">
-            <span className="flex items-center justify-center w-14 h-14 rounded-full bg-orange-200 mr-6">
-              <Icon name="clock" className="text-orange-600" size="xl" />
+          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
+            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-orange-200 mr-3 sm:mr-6">
+              <Icon name="clock" className="text-orange-600" size="lg" />
             </span>
             <div>
-              <div className="text-2xl font-bold text-gray-900">{orders.filter(order => order.status === 'PENDING').length}</div>
-              <div className="text-base text-gray-500 mt-1">Pending Orders</div>
+              <div className="text-lg sm:text-2xl font-bold text-gray-900">{orders.filter(order => order.status === 'PENDING').length}</div>
+              <div className="text-sm sm:text-base text-gray-500 mt-1">Pending Orders</div>
             </div>
           </div>
           {/* Completed */}
-          <div className="flex items-center bg-white rounded-2xl shadow-md px-8 py-5 min-w-[260px]">
-            <span className="flex items-center justify-center w-14 h-14 rounded-full bg-green-200 mr-6">
-              <Icon name="check" className="text-green-600" size="xl" />
+          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
+            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-green-200 mr-3 sm:mr-6">
+              <Icon name="check" className="text-green-600" size="lg" />
             </span>
             <div>
-              <div className="text-2xl font-bold text-gray-900">{orders.filter(order => order.status === 'COMPLETED').length}</div>
-              <div className="text-base text-gray-500 mt-1">Completed Orders</div>
+              <div className="text-lg sm:text-2xl font-bold text-gray-900">{orders.filter(order => order.status === 'COMPLETED').length}</div>
+              <div className="text-sm sm:text-base text-gray-500 mt-1">Completed Orders</div>
             </div>
           </div>
           {/* Cancelled */}
-          <div className="flex items-center bg-white rounded-2xl shadow-md px-8 py-5 min-w-[260px]">
-            <span className="flex items-center justify-center w-14 h-14 rounded-full bg-red-200 mr-6">
-              <Icon name="error" className="text-red-600" size="xl" />
+          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
+            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-red-200 mr-3 sm:mr-6">
+              <Icon name="error" className="text-red-600" size="lg" />
             </span>
             <div>
-              <div className="text-2xl font-bold text-gray-900">{orders.filter(order => order.status === 'CANCELLED').length}</div>
-              <div className="text-base text-gray-500 mt-1">Cancelled Orders</div>
+              <div className="text-lg sm:text-2xl font-bold text-gray-900">{orders.filter(order => order.status === 'CANCELLED').length}</div>
+              <div className="text-sm sm:text-base text-gray-500 mt-1">Cancelled Orders</div>
             </div>
           </div>
         </div>
         {/* Controls Row */}
-        <div className="flex flex-row justify-end items-center gap-6 w-full mt-8">
+        <div className="flex flex-col sm:flex-row justify-end items-center gap-3 sm:gap-6 w-full">
           <select
             value={dateRange}
             onChange={e => setDateRange(e.target.value)}
@@ -548,14 +557,16 @@ const Orders = () => {
                   <div className="flex flex-col md:flex-row md:items-center md:space-x-4 mt-3 md:mt-0 items-end">
                     <div className="font-bold text-lg text-gradient mb-2 md:mb-0">{formatCurrency(order.total)}</div>
                     <div className="flex space-x-2">
-                      <button
-                        className="btn-secondary flex items-center px-4 py-2 rounded-lg text-sm font-semibold shadow-sm"
-                        onClick={e => { e.stopPropagation(); handleEditOrder(order); }}
-                        aria-label={`Edit order ${order.orderNumber}`}
-                      >
-                        <Icon name="edit" className="mr-2" />
-                        <span className="hidden sm:inline">Edit</span>
-                      </button>
+                      {order.status === 'PENDING' && (
+                        <button
+                          className="btn-secondary flex items-center px-4 py-2 rounded-lg text-sm font-semibold shadow-sm"
+                          onClick={e => { e.stopPropagation(); handleEditOrder(order); }}
+                          aria-label={`Edit order ${order.orderNumber}`}
+                        >
+                          <Icon name="edit" className="mr-2" />
+                          <span className="hidden sm:inline">Edit</span>
+                        </button>
+                      )}
                       <button
                         className="btn-accent flex items-center px-4 py-2 rounded-lg text-sm font-semibold shadow-sm"
                         onClick={e => { e.stopPropagation(); handlePrintInvoice(order); }}
@@ -679,29 +690,7 @@ const Orders = () => {
                   )}
                 </div>
 
-                {/* Order Items */}
-                <div className="card-gradient p-6">
-                  <div className="flex items-center space-x-3 mb-6">
-                    <div className="icon-container bg-gradient-to-br from-primary-100 to-primary-200 text-primary-700">
-                      <Icon name="products" />
-                    </div>
-                    <h4 className="text-xl font-bold text-gradient">Order Items</h4>
-                  </div>
-                  <div className="space-y-3">
-                    {selectedOrder.orderItems?.map((item, index) => (
-                      <div key={item.id} className="flex justify-between items-center p-3 bg-white/50 rounded-xl border border-white/30">
-                        <div className="flex items-center space-x-3">
-                          <span className="text-sm font-medium text-neutral-500">#{index + 1}</span>
-                          <span className="font-medium text-neutral-900">{item.product?.name || 'Unknown Product'}</span>
-                          <span className="text-sm text-neutral-500">x{item.quantity}</span>
-                        </div>
-                        <span className="font-bold text-gradient">${parseFloat(item.subtotal).toFixed(2)}</span>
-                      </div>
-                    )) || <p className="text-neutral-500 text-center py-4">No items found</p>}
-                  </div>
-                </div>
-
-                {/* Order Summary */}
+                {/* Unified Order Summary with Items */}
                 <div className="card-gradient p-6">
                   <div className="flex items-center space-x-3 mb-6">
                     <div className="icon-container bg-gradient-to-br from-success-100 to-success-200 text-success-700">
@@ -709,14 +698,28 @@ const Orders = () => {
                     </div>
                     <h4 className="text-xl font-bold text-gradient">Order Summary</h4>
                   </div>
+                  
+                  {/* Order Items */}
+                  <div className="mb-6">
+                    <div className="space-y-3">
+                      {selectedOrder.orderItems?.map((item, index) => (
+                        <div key={item.id} className="flex justify-between items-center p-3 bg-white/50 rounded-xl border border-white/30">
+                          <div className="flex items-center space-x-3">
+                            <span className="text-sm font-medium text-neutral-500">#{index + 1}</span>
+                            <span className="font-medium text-neutral-900">{item.product?.name || 'Unknown Product'}</span>
+                            <span className="text-sm text-neutral-500">x{item.quantity}</span>
+                          </div>
+                          <span className="font-bold text-gradient">${parseFloat(item.subtotal).toFixed(2)}</span>
+                        </div>
+                      )) || <p className="text-neutral-500 text-center py-4">No items found</p>}
+                    </div>
+                  </div>
+
+                  {/* Financial Summary */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center p-3 bg-white/50 rounded-xl">
                       <span className="font-medium text-neutral-700">Subtotal:</span>
                       <span className="font-bold text-neutral-900">${parseFloat(selectedOrder.subtotal).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-white/50 rounded-xl">
-                      <span className="font-medium text-neutral-700">Tax:</span>
-                      <span className="font-bold text-neutral-900">${parseFloat(selectedOrder.tax).toFixed(2)}</span>
                     </div>
                     {selectedOrder.discount > 0 && (
                       <div className="flex justify-between items-center p-3 bg-white/50 rounded-xl">
@@ -748,12 +751,6 @@ const Orders = () => {
 
                 {/* Actions */}
                 <div className="card-gradient p-6">
-                  <div className="flex items-center space-x-3 mb-6">
-                    <div className="icon-container bg-gradient-to-br from-warning-100 to-warning-200 text-warning-700">
-                      <Icon name="settings" />
-                    </div>
-                    <h4 className="text-xl font-bold text-gradient">Actions</h4>
-                  </div>
                   <div className="flex flex-wrap gap-3">
                     {selectedOrder.status === 'PENDING' && (
                       <button
@@ -764,7 +761,7 @@ const Orders = () => {
                         <span>Edit Order</span>
                       </button>
                     )}
-                    {(selectedOrder.status === 'PENDING' || selectedOrder.status === 'PREPARING' || selectedOrder.status === 'READY') && (
+                    {selectedOrder.status === 'PENDING' && (
                       <button
                         onClick={() => handlePayment(selectedOrder.id)}
                         className="btn-success flex items-center space-x-2"
@@ -782,7 +779,7 @@ const Orders = () => {
                         <span>Print Invoice</span>
                       </button>
                     )}
-                    {selectedOrder.status !== 'COMPLETED' && selectedOrder.status !== 'CANCELLED' && (
+                    {selectedOrder.status === 'PENDING' && (
                       <button
                         onClick={() => handleCancelOrder(selectedOrder.id)}
                         className="btn-danger flex items-center space-x-2"

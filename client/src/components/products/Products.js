@@ -5,6 +5,7 @@ import * as yup from 'yup';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import LoadingSpinner from '../common/LoadingSpinner';
+import ConfirmDialog from '../common/ConfirmDialog';
 import { MagnifyingGlassIcon, FunnelIcon, ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -12,9 +13,8 @@ const schema = yup.object({
   name: yup.string().required('Product name is required'),
   description: yup.string().optional(),
   price: yup.number().positive('Price must be positive').required('Price is required'),
-  categoryId: yup.number().required('Category is required'),
-  isDrink: yup.boolean(),
-  imageUrl: yup.string().url('Must be a valid URL').optional()
+  categoryId: yup.number().nullable().required('Category is required'),
+  isDrink: yup.boolean().default(false)
 }).required();
 
 const Products = () => {
@@ -40,6 +40,16 @@ const Products = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState({ open: false });
+  const [imagePreview, setImagePreview] = useState(null);
+
+  // Statistics states
+  const [stats, setStats] = useState({
+    total: 0,
+    active: 0,
+    inactive: 0,
+    drinks: 0
+  });
 
   const {
     register,
@@ -79,6 +89,15 @@ const Products = () => {
       setProducts(productsRes.data.data);
       setTotalPages(productsRes.data.pagination.pages);
       setCategories(categoriesRes.data.data);
+
+      // Calculate statistics
+      const allProducts = productsRes.data.data;
+      setStats({
+        total: allProducts.length,
+        active: allProducts.filter(p => p.isActive).length,
+        inactive: allProducts.filter(p => !p.isActive).length,
+        drinks: allProducts.filter(p => p.isDrink).length
+      });
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error('Failed to load data');
@@ -89,26 +108,38 @@ const Products = () => {
 
   const openModal = (product = null) => {
     setEditingProduct(product);
+    setImagePreview(null);
     if (product) {
       reset({
         name: product.name,
         description: product.description || '',
         price: product.price,
         categoryId: product.categoryId,
-        isDrink: product.isDrink,
-        imageUrl: product.imageUrl || ''
+        isDrink: product.isDrink
       });
     } else {
       reset({
         name: '',
         description: '',
         price: '',
-        categoryId: '',
-        isDrink: false,
-        imageUrl: ''
+        categoryId: null,
+        isDrink: false
       });
     }
     setShowModal(true);
+  };
+
+  const handleImageChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setImagePreview(null);
+    }
   };
 
   const closeModal = () => {
@@ -120,44 +151,119 @@ const Products = () => {
   const onSubmit = async (data) => {
     setSubmitting(true);
     try {
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('name', data.name);
+      formData.append('description', data.description || '');
+      formData.append('price', parseFloat(data.price));
+      formData.append('categoryId', parseInt(data.categoryId));
+      formData.append('isDrink', Boolean(data.isDrink));
+
+      // Handle image file
+      const imageFile = document.getElementById('imageFile').files[0];
+      if (imageFile) {
+        formData.append('image', imageFile);
+      }
+
       if (editingProduct) {
-        await axios.put(`/api/products/${editingProduct.id}`, data);
+        await axios.put(`/api/products/${editingProduct.id}`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        });
         toast.success('Product updated successfully!');
       } else {
-        await axios.post('/api/products', data);
+        await axios.post('/api/products', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        });
         toast.success('Product created successfully!');
       }
       fetchData();
       closeModal();
     } catch (error) {
       console.error('Failed to save product:', error);
+      console.error('Server response:', JSON.stringify(error.response?.data, null, 2));
+      console.error('Validation errors:', JSON.stringify(error.response?.data?.errors, null, 2));
+      if (error.response?.data?.errors) {
+        error.response.data.errors.forEach((err, index) => {
+          console.error(`Error ${index + 1}:`, JSON.stringify(err, null, 2));
+        });
+      }
       toast.error(error.response?.data?.message || 'Failed to save product');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const showConfirm = ({ title, message, confirmText, cancelText, icon, type = 'warning' }) => {
+    return new Promise((resolve) => {
+      setConfirmDialog({
+        open: true,
+        title,
+        message,
+        confirmText,
+        cancelText,
+        icon,
+        type,
+        onConfirm: () => {
+          setConfirmDialog({ open: false });
+          resolve(true);
+        },
+        onCancel: () => {
+          setConfirmDialog({ open: false });
+          resolve(false);
+        }
+      });
+    });
+  };
+
   const handleDelete = async (productId) => {
-    if (!window.confirm('Are you sure you want to delete this product?')) {
-      return;
-    }
+    const confirmed = await showConfirm({
+      title: 'Delete Product',
+      message: 'Are you sure you want to delete this product? This action cannot be undone. Note: Products with existing orders cannot be deleted.',
+      confirmText: 'Yes, Delete',
+      cancelText: 'No',
+      type: 'danger'
+    });
+    if (!confirmed) return;
 
     try {
-      await axios.delete(`/api/products/${productId}`);
+      console.log('Sending delete request for product ID:', productId);
+      const response = await axios.delete(`/api/products/${productId}`);
+      console.log('Delete response:', response.data);
       toast.success('Product deleted successfully!');
       fetchData();
     } catch (error) {
       console.error('Failed to delete product:', error);
-      toast.error('Failed to delete product');
+      console.error('Delete error response:', error.response?.data);
+      
+      // Show specific error message if product has orders
+      if (error.response?.data?.message) {
+        toast.error(error.response.data.message);
+      } else {
+        toast.error('Failed to delete product');
+      }
     }
   };
 
   const toggleActive = async (productId, currentStatus) => {
+    const action = currentStatus ? 'deactivate' : 'activate';
+    const confirmed = await showConfirm({
+      title: `${action.charAt(0).toUpperCase() + action.slice(1)} Product`,
+      message: `Are you sure you want to ${action} this product?`,
+      confirmText: `Yes, ${action.charAt(0).toUpperCase() + action.slice(1)}`,
+      cancelText: 'No',
+      type: currentStatus ? 'warning' : 'success'
+    });
+    if (!confirmed) return;
+
     try {
       await axios.patch(`/api/products/${productId}`, {
         isActive: !currentStatus
       });
-      toast.success(`Product ${currentStatus ? 'deactivated' : 'activated'} successfully!`);
+      toast.success(`Product ${action}d successfully!`);
       fetchData();
     } catch (error) {
       console.error('Failed to toggle product status:', error);
@@ -172,6 +278,9 @@ const Products = () => {
       if (selectedType) params.append('isDrink', selectedType === 'drink');
       if (selectedStatus) params.append('status', selectedStatus);
 
+      // Show loading toast
+      const loadingToast = toast.loading('Preparing export...');
+
       const response = await axios.get(`/api/products/export/csv?${params}`, {
         responseType: 'blob'
       });
@@ -179,12 +288,24 @@ const Products = () => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', 'products.csv');
+      
+      // Generate filename with filters
+      let filename = 'products';
+      if (selectedCategory) {
+        const category = categories.find(c => c.id == selectedCategory);
+        filename += `-${category?.name || selectedCategory}`;
+      }
+      if (selectedType) filename += `-${selectedType}`;
+      if (selectedStatus) filename += `-${selectedStatus}`;
+      filename += '.csv';
+      
+      link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
 
+      toast.dismiss(loadingToast);
       toast.success('Products exported successfully!');
     } catch (error) {
       console.error('Export failed:', error);
@@ -275,9 +396,60 @@ const Products = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Products</h1>
-        <div className="flex space-x-2">
+      <div className="card-gradient p-4 sm:p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
+        {/* Status Cards Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
+          {/* Total Products */}
+          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
+            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-blue-200 mr-3 sm:mr-6">
+              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+            </span>
+            <div>
+              <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.total}</div>
+              <div className="text-sm sm:text-base text-gray-500 mt-1">Total Products</div>
+            </div>
+          </div>
+          {/* Active */}
+          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
+            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-green-200 mr-3 sm:mr-6">
+              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </span>
+            <div>
+              <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.active}</div>
+              <div className="text-sm sm:text-base text-gray-500 mt-1">Active</div>
+            </div>
+          </div>
+          {/* Inactive */}
+          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
+            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-red-200 mr-3 sm:mr-6">
+              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </span>
+            <div>
+              <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.inactive}</div>
+              <div className="text-sm sm:text-base text-gray-500 mt-1">Inactive</div>
+            </div>
+          </div>
+          {/* Drinks */}
+          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
+            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-purple-200 mr-3 sm:mr-6">
+              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+              </svg>
+            </span>
+            <div>
+              <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.drinks}</div>
+              <div className="text-sm sm:text-base text-gray-500 mt-1">Drinks</div>
+            </div>
+          </div>
+        </div>
+        {/* Controls Row */}
+        <div className="flex flex-col sm:flex-row justify-end items-center gap-3 sm:gap-6 w-full">
           {hasPermission('products.import') && (
             <button
               onClick={() => setShowImportModal(true)}
@@ -294,6 +466,12 @@ const Products = () => {
               Export
             </button>
           )}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="btn-secondary"
+          >
+            Filters
+          </button>
           {hasPermission('products.create') && (
             <button
               onClick={() => openModal()}
@@ -306,21 +484,10 @@ const Products = () => {
       </div>
 
       {/* Search and Filters */}
-      <div className="card">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-medium text-gray-900">Search & Filters</h3>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center space-x-2 text-gray-600 hover:text-gray-900"
-            >
-              <FunnelIcon className="w-5 h-5" />
-              <span>Filters</span>
-            </button>
-          </div>
-          
+      {showFilters && (
+        <div className="card-gradient p-4">
           {/* Search Bar */}
-          <div className="mt-4">
+          <div className="mb-4">
             <div className="relative">
               <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
@@ -334,71 +501,69 @@ const Products = () => {
           </div>
 
           {/* Advanced Filters */}
-          {showFilters && (
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">All Categories</option>
-                  {categories.map(category => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">All Categories</option>
+                {categories.map(category => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                <select
-                  value={selectedType}
-                  onChange={(e) => setSelectedType(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">All Types</option>
-                  <option value="food">Food</option>
-                  <option value="drink">Drink</option>
-                </select>
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+              <select
+                value={selectedType}
+                onChange={(e) => setSelectedType(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">All Types</option>
+                <option value="food">Food</option>
+                <option value="drink">Drink</option>
+              </select>
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="">All</option>
-                </select>
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="">All</option>
+              </select>
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Price Range</label>
-                <div className="flex space-x-2">
-                  <input
-                    type="number"
-                    placeholder="Min"
-                    value={minPrice}
-                    onChange={(e) => setMinPrice(e.target.value)}
-                    className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Max"
-                    value={maxPrice}
-                    onChange={(e) => setMaxPrice(e.target.value)}
-                    className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Price Range</label>
+              <div className="flex space-x-2">
+                <input
+                  type="number"
+                  placeholder="Min"
+                  value={minPrice}
+                  onChange={(e) => setMinPrice(e.target.value)}
+                  className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+                <input
+                  type="number"
+                  placeholder="Max"
+                  value={maxPrice}
+                  onChange={(e) => setMaxPrice(e.target.value)}
+                  className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
               </div>
             </div>
-          )}
+          </div>
 
           {/* Clear Filters */}
           {(searchTerm || selectedCategory || selectedType || selectedStatus || minPrice || maxPrice) && (
@@ -412,10 +577,10 @@ const Products = () => {
             </div>
           )}
         </div>
-      </div>
+      )}
 
       {/* Products Table */}
-      <div className="card">
+      <div className="card-gradient">
         <div className="px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-medium text-gray-900">Menu Items</h3>
         </div>
@@ -550,6 +715,33 @@ const Products = () => {
               ))}
             </tbody>
           </table>
+          
+          {/* Empty State */}
+          {products.length === 0 && (
+            <div className="text-center py-12">
+              <div className="mx-auto h-12 w-12 text-gray-400">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
+              </div>
+              <h3 className="mt-2 text-sm font-medium text-gray-900">No products found</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                {searchTerm || selectedCategory || selectedType || selectedStatus || minPrice || maxPrice
+                  ? 'Try adjusting your filters to find what you\'re looking for.'
+                  : 'Get started by creating your first product.'}
+              </p>
+              {!searchTerm && !selectedCategory && !selectedType && !selectedStatus && !minPrice && !maxPrice && hasPermission('products.create') && (
+                <div className="mt-6">
+                  <button
+                    onClick={() => openModal()}
+                    className="btn-primary"
+                  >
+                    Add Product
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Pagination */}
@@ -582,7 +774,7 @@ const Products = () => {
 
       {/* Add/Edit Product Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
             <div className="mt-3">
               <div className="flex justify-between items-center mb-4">
@@ -672,16 +864,32 @@ const Products = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Image URL
+                    Product Image
                   </label>
                   <input
-                    {...register('imageUrl')}
-                    type="url"
+                    type="file"
+                    id="imageFile"
+                    accept="image/*"
+                    onChange={handleImageChange}
                     className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
                       errors.imageUrl ? 'border-red-300' : 'border-gray-300'
                     }`}
-                    placeholder="https://example.com/image.jpg"
                   />
+                  <p className="mt-1 text-sm text-gray-500">
+                    Accepted formats: JPG, PNG, GIF. Max size: 5MB
+                  </p>
+                  
+                  {/* Image Preview */}
+                  {(imagePreview || (editingProduct && editingProduct.imageUrl)) && (
+                    <div className="mt-3">
+                      <img
+                        src={imagePreview || editingProduct.imageUrl}
+                        alt="Product preview"
+                        className="w-32 h-32 object-cover rounded-md border"
+                      />
+                    </div>
+                  )}
+                  
                   {errors.imageUrl && (
                     <p className="mt-1 text-sm text-red-600">{errors.imageUrl.message}</p>
                   )}
@@ -730,8 +938,8 @@ const Products = () => {
 
       {/* Import Modal */}
       {showImportModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-1/2 shadow-lg rounded-md bg-white">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-background rounded-2xl shadow-large p-6 max-w-md w-full mx-4">
             <div className="mt-3">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-medium text-gray-900">Import Products</h3>
@@ -758,17 +966,29 @@ const Products = () => {
 
                 <div className="bg-gray-50 p-4 rounded-md">
                   <h4 className="text-sm font-medium text-gray-900 mb-2">CSV Format:</h4>
-                  <p className="text-sm text-gray-600">
-                    Required columns: name, price, categoryId<br/>
-                    Optional columns: description, isDrink, imageUrl
+                  <p className="text-sm text-gray-600 mb-2">
+                    <strong>Required columns:</strong> name, price, categoryId<br/>
+                    <strong>Optional columns:</strong> description, isDrink, imageUrl
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Example: name,price,categoryId,description,isDrink<br/>
+                    "Pizza Margherita",12.99,1,"Classic tomato and mozzarella",false
                   </p>
                 </div>
+
+                {importing && (
+                  <div className="flex items-center justify-center py-4">
+                    <div className="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mr-2"></div>
+                    <span className="text-sm text-gray-600">Importing products...</span>
+                  </div>
+                )}
 
                 <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
                     onClick={() => setShowImportModal(false)}
                     className="btn-secondary"
+                    disabled={importing}
                   >
                     Cancel
                   </button>
@@ -777,6 +997,11 @@ const Products = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Confirm Dialog */}
+      {confirmDialog.open && (
+        <ConfirmDialog {...confirmDialog} />
       )}
     </div>
   );

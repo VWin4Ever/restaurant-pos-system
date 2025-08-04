@@ -100,10 +100,56 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!user,
     isAdmin: user?.role === 'ADMIN',
     isCashier: user?.role === 'CASHIER',
-    hasPermission: (permission) => user?.permissions?.includes(permission) || false,
+    hasPermission: (permission) => {
+      // Simple role-based permissions
+      if (!user) return false;
+      
+      // Admin has all permissions
+      if (user.role === 'ADMIN') return true;
+      
+      // Cashier permissions
+      if (user.role === 'CASHIER') {
+        const cashierPermissions = [
+          'orders.create',
+          'orders.read',
+          'orders.update',
+          'products.view',
+          'categories.view',
+          'tables.read',
+          'tables.update',
+          'stock.read',
+          'stock.update'
+        ];
+        return cashierPermissions.includes(permission);
+      }
+      
+      return false;
+    },
     canPerformAction: (action, resource) => {
       const permission = `${resource}.${action}`;
-      return user?.permissions?.includes(permission) || false;
+      // Simple role-based permissions
+      if (!user) return false;
+      
+      // Admin has all permissions
+      if (user.role === 'ADMIN') return true;
+      
+      // Cashier permissions
+      if (user.role === 'CASHIER') {
+        const cashierPermissions = [
+          'orders.create',
+          'orders.read',
+          'orders.update',
+          'products.view',
+          'categories.view',
+          'tables.read',
+          'tables.update',
+          'stock.read',
+          'stock.update'
+        ];
+        return cashierPermissions.includes(permission);
+      }
+      
+      return false;
     }
   };
 

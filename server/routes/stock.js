@@ -18,6 +18,11 @@ router.get('/', async (req, res) => {
       };
     }
 
+    // Only show stock for drinks
+    where.product = {
+      isDrink: true
+    };
+
     const stock = await prisma.stock.findMany({
       where,
       include: {
@@ -445,6 +450,13 @@ router.get('/logs', async (req, res) => {
       if (endDate) where.createdAt.lte = new Date(endDate);
     }
 
+    // Only show logs for drinks
+    where.stock = {
+      product: {
+        isDrink: true
+      }
+    };
+
     const logs = await prisma.stockLog.findMany({
       where,
       include: {
@@ -494,6 +506,9 @@ router.get('/alerts/low-stock', async (req, res) => {
       where: {
         quantity: {
           lte: prisma.stock.fields.minStock
+        },
+        product: {
+          isDrink: true
         }
       },
       include: {

@@ -6,6 +6,7 @@ import axios from 'axios';
 import { toast } from 'react-toastify';
 import LoadingSpinner from '../common/LoadingSpinner';
 import Icon from '../common/Icon';
+import { useSettings } from '../../contexts/SettingsContext';
 
 const schema = yup.object({
   customerNote: yup.string().optional(),
@@ -13,6 +14,7 @@ const schema = yup.object({
 }).required();
 
 const EditOrder = ({ order, onClose, onOrderUpdated }) => {
+  const { calculateTax } = useSettings();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -98,13 +100,8 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
 
   const addToOrder = (product) => {
     const existingItem = orderItems.find(item => item.productId === product.id);
-    
     if (existingItem) {
-      setOrderItems(orderItems.map(item => 
-        item.productId === product.id 
-          ? { ...item, quantity: item.quantity + 1, subtotal: (item.quantity + 1) * parseFloat(item.price) }
-          : item
-      ));
+      updateQuantity(product.id, existingItem.quantity + 1);
     } else {
       setOrderItems([...orderItems, {
         productId: product.id,
@@ -118,14 +115,14 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
 
   const updateQuantity = (productId, newQuantity) => {
     if (newQuantity <= 0) {
-      setOrderItems(orderItems.filter(item => item.productId !== productId));
-    } else {
-      setOrderItems(orderItems.map(item => 
-        item.productId === productId 
-          ? { ...item, quantity: newQuantity, subtotal: newQuantity * parseFloat(item.price) }
-          : item
-      ));
+      removeItem(productId);
+      return;
     }
+    setOrderItems(orderItems.map(item => 
+      item.productId === productId 
+        ? { ...item, quantity: newQuantity, subtotal: parseFloat(item.price) * newQuantity }
+        : item
+    ));
   };
 
   const removeItem = (productId) => {
@@ -136,8 +133,8 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
     return orderItems.reduce((sum, item) => sum + item.subtotal, 0);
   };
 
-  const calculateTax = () => {
-    return calculateSubtotal() * 0.1; // 10% tax
+  const calculateTaxAmount = () => {
+    return calculateTax(calculateSubtotal());
   };
 
   const calculateDiscount = () => {
@@ -145,7 +142,7 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
   };
 
   const calculateTotal = () => {
-    return calculateSubtotal() + calculateTax() - calculateDiscount();
+    return calculateSubtotal() + calculateTaxAmount() - calculateDiscount();
   };
 
   const onSubmit = async (data) => {
@@ -452,10 +449,6 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
                         <div className="flex justify-between text-sm">
                           <span className="text-gray-600">Subtotal:</span>
                           <span className="font-medium">${calculateSubtotal().toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">Tax (10%):</span>
-                          <span className="font-medium">${calculateTax().toFixed(2)}</span>
                         </div>
                         {discountPercent > 0 && (
                           <div className="flex justify-between text-sm">

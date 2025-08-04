@@ -5,6 +5,7 @@ import * as yup from 'yup';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import LoadingSpinner from '../common/LoadingSpinner';
+import ConfirmDialog from '../common/ConfirmDialog';
 import { MagnifyingGlassIcon, FunnelIcon, ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -29,6 +30,7 @@ const Categories = () => {
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
   const [showFilters, setShowFilters] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState({ open: false });
 
   const {
     register,
@@ -140,6 +142,28 @@ const Categories = () => {
     }
   };
 
+  const showConfirm = ({ title, message, confirmText, cancelText, icon, type = 'warning' }) => {
+    return new Promise((resolve) => {
+      setConfirmDialog({
+        open: true,
+        title,
+        message,
+        confirmText,
+        cancelText,
+        icon,
+        type,
+        onConfirm: () => {
+          setConfirmDialog({ open: false });
+          resolve(true);
+        },
+        onCancel: () => {
+          setConfirmDialog({ open: false });
+          resolve(false);
+        }
+      });
+    });
+  };
+
   const openModal = (category = null) => {
     setEditingCategory(category);
     if (category) {
@@ -176,16 +200,32 @@ const Categories = () => {
       closeModal();
     } catch (error) {
       console.error('Failed to save category:', error);
-      toast.error(error.response?.data?.message || 'Failed to save category');
+      console.error('Server response:', error.response?.data);
+      
+      // Show specific error messages
+      if (error.response?.data?.message) {
+        toast.error(error.response.data.message);
+      } else if (error.response?.status === 400) {
+        toast.error('Invalid data provided');
+      } else if (error.response?.status === 404) {
+        toast.error('Category not found');
+      } else {
+        toast.error('Failed to save category');
+      }
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDelete = async (categoryId) => {
-    if (!window.confirm('Are you sure you want to delete this category? This will also affect all products in this category.')) {
-      return;
-    }
+    const confirmed = await showConfirm({
+      title: 'Delete Category',
+      message: 'Are you sure you want to permanently delete this category? This action cannot be undone and the category will be completely removed from the system.',
+      confirmText: 'Yes, Delete Permanently',
+      cancelText: 'No, Keep Category',
+      type: 'danger'
+    });
+    if (!confirmed) return;
 
     try {
       await axios.delete(`/api/categories/${categoryId}`);
@@ -193,21 +233,51 @@ const Categories = () => {
       fetchCategories();
     } catch (error) {
       console.error('Failed to delete category:', error);
-      toast.error('Failed to delete category');
+      console.error('Server response:', error.response?.data);
+      
+      if (error.response?.data?.message) {
+        toast.error(error.response.data.message);
+      } else {
+        toast.error('Failed to delete category');
+      }
     }
   };
 
   const toggleActive = async (categoryId, currentStatus) => {
+    const action = currentStatus ? 'deactivate' : 'activate';
+    const confirmed = await showConfirm({
+      title: `${action.charAt(0).toUpperCase() + action.slice(1)} Category`,
+      message: `Are you sure you want to ${action} this category?`,
+      confirmText: `Yes, ${action.charAt(0).toUpperCase() + action.slice(1)}`,
+      cancelText: 'No',
+      type: currentStatus ? 'warning' : 'success'
+    });
+    if (!confirmed) return;
+
     try {
       await axios.patch(`/api/categories/${categoryId}`, {
         isActive: !currentStatus
       });
-      toast.success(`Category ${currentStatus ? 'deactivated' : 'activated'} successfully!`);
+      toast.success(`Category ${action}d successfully!`);
       fetchCategories();
     } catch (error) {
       console.error('Failed to toggle category status:', error);
-      toast.error('Failed to update category status');
+      console.error('Server response:', error.response?.data);
+      
+      if (error.response?.data?.message) {
+        toast.error(error.response.data.message);
+      } else {
+        toast.error('Failed to update category status');
+      }
     }
+  };
+
+  // Calculate statistics
+  const stats = {
+    total: filteredCategories.length,
+    active: filteredCategories.filter(cat => cat.isActive).length,
+    inactive: filteredCategories.filter(cat => !cat.isActive).length,
+    totalProducts: filteredCategories.reduce((total, cat) => total + (cat._count?.products || 0), 0)
   };
 
   if (loading) {
@@ -217,34 +287,82 @@ const Categories = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Categories</h1>
-        {hasPermission('categories.create') && (
+      <div className="card-gradient p-4 sm:p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
+        {/* Status Cards Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-2 rounded-lg bg-blue-100">
+                <span className="text-xl">📂</span>
+              </div>
+              <div className="ml-3">
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.total}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">Total Categories</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-2 rounded-lg bg-green-100">
+                <span className="text-xl">✅</span>
+              </div>
+              <div className="ml-3">
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.active}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">Active</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-2 rounded-lg bg-red-100">
+                <span className="text-xl">❌</span>
+              </div>
+              <div className="ml-3">
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.inactive}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">Inactive</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-2 rounded-lg bg-purple-100">
+                <span className="text-xl">🍽️</span>
+              </div>
+              <div className="ml-3">
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.totalProducts}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">Total Products</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Controls Row */}
+        <div className="flex flex-col sm:flex-row justify-end items-center gap-3 sm:gap-6 w-full">
           <button
-            onClick={() => openModal()}
-            className="btn-primary"
+            onClick={() => setShowFilters(!showFilters)}
+            className="btn-secondary"
           >
-            Add Category
+            Filters
           </button>
-        )}
+          {hasPermission('categories.create') && (
+            <button
+              onClick={() => openModal()}
+              className="btn-primary"
+            >
+              Add Category
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Search and Filters */}
-      <div className="card">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-medium text-gray-900">Search & Filters</h3>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center space-x-2 text-gray-600 hover:text-gray-900"
-            >
-              <FunnelIcon className="w-5 h-5" />
-              <span>Filters</span>
-            </button>
-          </div>
-          
+      {showFilters && (
+        <div className="card-gradient p-4">
           {/* Search Bar */}
-          <div className="mt-4">
+          <div className="mb-4">
             <div className="relative">
               <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
@@ -258,63 +376,61 @@ const Categories = () => {
           </div>
 
           {/* Advanced Filters */}
-          {showFilters && (
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Products</label>
-                <select
-                  value={selectedProductFilter}
-                  onChange={(e) => setSelectedProductFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">All Categories</option>
-                  <option value="with_products">With Products</option>
-                  <option value="without_products">Without Products</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="name">Name</option>
-                  <option value="products">Product Count</option>
-                  <option value="createdAt">Created Date</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Sort Order</label>
-                <button
-                  type="button"
-                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 flex items-center justify-between"
-                >
-                  <span>{sortOrder === 'asc' ? 'Ascending' : 'Descending'}</span>
-                  {sortOrder === 'asc' ? 
-                    <ArrowUpIcon className="w-4 h-4" /> : 
-                    <ArrowDownIcon className="w-4 h-4" />
-                  }
-                </button>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
             </div>
-          )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Products</label>
+              <select
+                value={selectedProductFilter}
+                onChange={(e) => setSelectedProductFilter(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">All Categories</option>
+                <option value="with_products">With Products</option>
+                <option value="without_products">Without Products</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="name">Name</option>
+                <option value="products">Product Count</option>
+                <option value="createdAt">Created Date</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sort Order</label>
+              <button
+                type="button"
+                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 flex items-center justify-between"
+              >
+                <span>{sortOrder === 'asc' ? 'Ascending' : 'Descending'}</span>
+                {sortOrder === 'asc' ? 
+                  <ArrowUpIcon className="w-4 h-4" /> : 
+                  <ArrowDownIcon className="w-4 h-4" />
+                }
+              </button>
+            </div>
+          </div>
 
           {/* Clear Filters */}
           {(searchTerm || selectedStatus || selectedProductFilter || sortBy !== 'name' || sortOrder !== 'asc') && (
@@ -328,53 +444,10 @@ const Categories = () => {
             </div>
           )}
         </div>
-      </div>
-
-      {/* Categories Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 p-3 rounded-lg bg-blue-100">
-              <span className="text-2xl">📂</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Categories</p>
-              <p className="text-2xl font-semibold text-gray-900">{filteredCategories.length}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 p-3 rounded-lg bg-green-100">
-              <span className="text-2xl">✅</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Active Categories</p>
-              <p className="text-2xl font-semibold text-gray-900">
-                {filteredCategories.filter(cat => cat.isActive).length}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 p-3 rounded-lg bg-purple-100">
-              <span className="text-2xl">🍽️</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Products</p>
-              <p className="text-2xl font-semibold text-gray-900">
-                {filteredCategories.reduce((total, cat) => total + (cat._count?.products || 0), 0)}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Categories Table */}
-      <div className="card">
+      <div className="card-gradient">
         <div className="px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-medium text-gray-900">Menu Categories</h3>
         </div>
@@ -452,7 +525,13 @@ const Categories = () => {
                         {hasPermission('categories.edit') && (
                           <button
                             onClick={() => openModal(category)}
-                            className="text-primary-600 hover:text-primary-900"
+                            className={`${
+                              category.isActive 
+                                ? 'text-primary-600 hover:text-primary-900' 
+                                : 'text-gray-400 cursor-not-allowed'
+                            }`}
+                            disabled={!category.isActive}
+                            title={!category.isActive ? 'Cannot edit inactive category' : 'Edit category'}
                           >
                             Edit
                           </button>
@@ -472,8 +551,16 @@ const Categories = () => {
                         {hasPermission('categories.delete') && (
                           <button
                             onClick={() => handleDelete(category.id)}
-                            className="text-red-600 hover:text-red-900"
+                            className={`${
+                              category._count?.products > 0
+                                ? 'text-gray-400 cursor-not-allowed'
+                                : 'text-red-600 hover:text-red-900'
+                            }`}
                             disabled={category._count?.products > 0}
+                            title={category._count?.products > 0 
+                              ? `Cannot delete category with ${category._count.products} product(s)` 
+                              : 'Delete category'
+                            }
                           >
                             Delete
                           </button>
@@ -486,6 +573,7 @@ const Categories = () => {
                 <tr>
                   <td colSpan="6" className="px-6 py-12 text-center">
                     <div className="text-gray-500">
+                      <div className="text-4xl mb-4">📂</div>
                       <div className="text-lg font-medium mb-2">No categories found</div>
                       <div className="text-sm">
                         {searchTerm || selectedStatus || selectedProductFilter 
@@ -504,8 +592,8 @@ const Categories = () => {
 
       {/* Add/Edit Category Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-background rounded-2xl shadow-large p-6 max-w-md w-full mx-4">
             <div className="mt-3">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-medium text-gray-900">
@@ -576,6 +664,11 @@ const Categories = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Confirm Dialog */}
+      {confirmDialog.open && (
+        <ConfirmDialog {...confirmDialog} />
       )}
     </div>
   );

@@ -174,8 +174,6 @@ enum TableStatus {
 
 enum OrderStatus {
   PENDING
-  PREPARING
-  READY
   COMPLETED
   CANCELLED
 }

@@ -105,6 +105,15 @@ router.post('/', requirePermission('categories.create'), [
     });
   } catch (error) {
     console.error('Create category error:', error);
+    
+    // Handle duplicate name error
+    if (error.code === 'P2002' && error.meta?.target?.includes('name')) {
+      return res.status(400).json({
+        success: false,
+        message: 'A category with this name already exists'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Failed to create category'
@@ -145,6 +154,23 @@ router.put('/:id', requirePermission('categories.edit'), [
     });
   } catch (error) {
     console.error('Update category error:', error);
+    
+    // Handle duplicate name error
+    if (error.code === 'P2002' && error.meta?.target?.includes('name')) {
+      return res.status(400).json({
+        success: false,
+        message: 'A category with this name already exists'
+      });
+    }
+    
+    // Handle category not found error
+    if (error.code === 'P2025') {
+      return res.status(404).json({
+        success: false,
+        message: 'Category not found'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Failed to update category'
@@ -181,6 +207,15 @@ router.patch('/:id', requirePermission('categories.edit'), [
     });
   } catch (error) {
     console.error('Toggle category status error:', error);
+    
+    // Handle category not found error
+    if (error.code === 'P2025') {
+      return res.status(404).json({
+        success: false,
+        message: 'Category not found'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Failed to update category status'
@@ -193,24 +228,23 @@ router.delete('/:id', requirePermission('categories.delete'), async (req, res) =
   try {
     const categoryId = parseInt(req.params.id);
 
-    // Check if category has products
+    // Check if category has products (any products, not just active ones)
     const productsCount = await prisma.product.count({
       where: { 
-        categoryId,
-        isActive: true
+        categoryId
       }
     });
 
     if (productsCount > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete category with active products'
+        message: `Cannot delete category with ${productsCount} product(s). Please deactivate the category instead.`
       });
     }
 
-    await prisma.category.update({
-      where: { id: categoryId },
-      data: { isActive: false }
+    // Hard delete the category since it has no products
+    await prisma.category.delete({
+      where: { id: categoryId }
     });
 
     res.json({
@@ -219,6 +253,15 @@ router.delete('/:id', requirePermission('categories.delete'), async (req, res) =
     });
   } catch (error) {
     console.error('Delete category error:', error);
+    
+    // Handle category not found error
+    if (error.code === 'P2025') {
+      return res.status(404).json({
+        success: false,
+        message: 'Category not found'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Failed to delete category'

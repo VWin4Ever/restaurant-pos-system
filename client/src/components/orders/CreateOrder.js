@@ -322,22 +322,22 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm h-full w-full z-50 flex items-center justify-center">
-              <div className="relative mx-auto px-4 py-6 w-full max-w-screen-2xl shadow-large rounded-2xl bg-background h-[90vh] overflow-hidden">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm h-full w-full z-50 flex items-center justify-center p-2 sm:p-4">
+      <div className="relative mx-auto w-full max-w-screen-2xl shadow-large rounded-2xl bg-background h-[95vh] sm:h-[90vh] overflow-hidden">
         <form onSubmit={handleSubmit(onSubmit)} className="w-full h-full">
-          <div className="flex flex-col lg:flex-row lg:gap-8 w-full h-full">
+          <div className="flex flex-col lg:flex-row lg:gap-6 w-full h-full">
             {/* Products Section */}
             <div className="lg:flex-1 flex flex-col">
               {/* Header with Categories and Search */}
-              <div className="mb-6 sticky top-0 z-20 bg-background/95 backdrop-blur-sm pb-4 rounded-xl border-b border-neutral-100">
+              <div className="mb-4 sm:mb-6 sticky top-0 z-20 bg-background/95 backdrop-blur-sm pb-4 rounded-xl border-b border-neutral-100">
                 {/* Categories */}
                 <div className="flex space-x-2 overflow-x-auto pb-4 mb-4 scrollbar-hide">
                   <button
-                                            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all duration-200 whitespace-nowrap ${
-                          selectedCategory === 'all' 
-                            ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white border-primary-600 shadow-soft' 
-                            : 'bg-surface text-text-primary border-neutral-200 hover:bg-surfaceHover hover:border-primary-300'
-                        }`}
+                    className={`inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium border transition-all duration-200 whitespace-nowrap ${
+                      selectedCategory === 'all' 
+                        ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white border-primary-600 shadow-soft' 
+                        : 'bg-surface text-text-primary border-neutral-200 hover:bg-surfaceHover hover:border-primary-300'
+                    }`}
                     onClick={() => setSelectedCategory('all')}
                     type="button"
                   >
@@ -347,7 +347,7 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
                   {categories.map(category => (
                     <button
                       key={category.id}
-                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all duration-200 whitespace-nowrap ${
+                      className={`inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium border transition-all duration-200 whitespace-nowrap ${
                         selectedCategory === category.name 
                           ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white border-primary-600 shadow-soft' 
                           : 'bg-surface text-text-primary border-neutral-200 hover:bg-surfaceHover hover:border-primary-300'
@@ -369,14 +369,14 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
                     placeholder="Search products..."
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3 border border-neutral-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-primary-500/20 focus:border-primary-600 transition-all duration-200 text-base bg-background"
+                    className="w-full pl-12 pr-4 py-2 sm:py-3 border border-neutral-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-primary-500/20 focus:border-primary-600 transition-all duration-200 text-sm sm:text-base bg-background"
                   />
                 </div>
               </div>
               
               {/* Products Grid */}
-              <div className="flex-1 overflow-y-auto custom-scrollbar" style={{ minHeight: '60vh' }}>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-6">
+              <div className="flex-1 overflow-y-auto custom-scrollbar" style={{ minHeight: '50vh' }}>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 mb-6">
                   {filteredProducts.length === 0 ? (
                     <div className="col-span-full text-center text-text-muted py-12">
                       <Icon name="search" className="w-16 h-16 mx-auto mb-4 text-neutral-300" />
@@ -511,10 +511,6 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
                   <div className="flex justify-between text-sm">
                     <span className="text-text-secondary">Subtotal</span>
                     <span className="font-medium text-text-primary">${calculateSubtotal().toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-text-secondary">Tax</span>
-                    <span className="font-medium text-text-primary">${calculateTaxAmount().toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     {editingDiscount ? (

@@ -1,278 +1,328 @@
 import React, { useState, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
-import { yupResolver } from '@hookform/resolvers/yup';
-import * as yup from 'yup';
-import axios from 'axios';
 import { toast } from 'react-toastify';
+import axios from 'axios';
 import LoadingSpinner from '../common/LoadingSpinner';
-import { MagnifyingGlassIcon, FunnelIcon, ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/outline';
+import ConfirmDialog from '../common/ConfirmDialog';
+import Icon from '../common/Icon';
+import { useAuth } from '../../contexts/AuthContext';
 
-const schema = yup.object({
-  username: yup.string().required('Username is required'),
-  name: yup.string().required('Name is required'),
-  email: yup.string().email('Invalid email format').required('Email is required'),
-  password: yup.string().when('$isEditing', {
-    is: false,
-    then: yup.string().min(6, 'Password must be at least 6 characters').required('Password is required'),
-    otherwise: yup.string().optional()
-  }),
-  role: yup.string().oneOf(['ADMIN', 'CASHIER'], 'Invalid role').required('Role is required')
-}).required();
+// Skeleton loader for users table
+const UsersSkeleton = ({ rows = 5 }) => (
+  <div className="space-y-4 p-6">
+    {Array.from({ length: rows }).map((_, i) => (
+      <div key={i} className="animate-pulse bg-surface rounded-xl h-20 w-full" />
+    ))}
+  </div>
+);
 
 const Users = () => {
+  const { hasPermission } = useAuth();
   const [users, setUsers] = useState([]);
-  const [filteredUsers, setFilteredUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [selectedUser, setSelectedUser] = useState(null);
-  
-  // Filter and search states
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedRole, setSelectedRole] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('');
-  const [sortBy, setSortBy] = useState('name');
-  const [sortOrder, setSortOrder] = useState('asc');
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [confirmDialog, setConfirmDialog] = useState({ open: false });
+  const [isMobile, setIsMobile] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors },
-    watch
-  } = useForm({
-    resolver: yupResolver(schema),
-    context: { isEditing: !!editingUser }
+  
+  // Filter states
+  const [filters, setFilters] = useState({
+    role: '',
+    status: '',
+    search: ''
+  });
+  
+  // Pagination
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 20,
+    total: 0,
+    pages: 0
   });
 
-  const watchedPassword = watch('password');
+  // Form state
+  const [formData, setFormData] = useState({
+    username: '',
+    password: '',
+    name: '',
+    email: '',
+    role: 'CASHIER'
+  });
 
+  // Check mobile viewport
   useEffect(() => {
-    fetchUsers();
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   useEffect(() => {
-    applyFilters();
-  }, [users, searchTerm, selectedRole, selectedStatus, sortBy, sortOrder]);
+    fetchUsers();
+  }, [filters, pagination.page]);
 
   const fetchUsers = async () => {
     try {
-      const response = await axios.get('/api/users');
+      setLoading(true);
+      const params = new URLSearchParams({
+        page: pagination.page,
+        limit: pagination.limit,
+        ...filters
+      });
+
+      const response = await axios.get(`/api/users?${params}`);
       setUsers(response.data.data);
+      
+      // Handle both new pagination format and old format for backward compatibility
+      if (response.data.pagination) {
+        setPagination(prev => ({
+          ...prev,
+          total: response.data.pagination.total,
+          pages: response.data.pagination.pages
+        }));
+      } else {
+        // Fallback for old API format
+        setPagination(prev => ({
+          ...prev,
+          total: response.data.data.length,
+          pages: 1
+        }));
+      }
     } catch (error) {
-      console.error('Failed to fetch users:', error);
-      toast.error('Failed to load users');
+      console.error('Error fetching users:', error);
+      toast.error('Failed to fetch users');
     } finally {
       setLoading(false);
     }
   };
 
-  const openModal = (user = null) => {
-    setEditingUser(user);
-    if (user) {
-      reset({
-        username: user.username,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        password: ''
-      });
-    } else {
-      reset({
-        username: '',
-        name: '',
-        email: '',
-        role: 'CASHIER',
-        password: ''
-      });
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    // Client-side validation
+    if (!editingUser && formData.password.length < 6) {
+      toast.error('Password must be at least 6 characters long');
+      return;
     }
+    
+    if (editingUser && formData.password && formData.password.length < 6) {
+      toast.error('New password must be at least 6 characters long');
+      return;
+    }
+    
+    // Validate email format if provided
+    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+    
+    setActionLoading(true);
+    
+    try {
+      if (editingUser) {
+        await axios.put(`/api/users/${editingUser.id}`, formData);
+        toast.success('User updated successfully');
+      } else {
+        await axios.post('/api/users', formData);
+        toast.success('User created successfully');
+      }
+      
+      setShowModal(false);
+      setEditingUser(null);
+      resetForm();
+      setSelectedUsers([]); // Clear selected users after operation
+      fetchUsers();
+    } catch (error) {
+      console.error('Error saving user:', error);
+      toast.error(error.response?.data?.message || 'Failed to save user');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleEdit = (user) => {
+    setEditingUser(user);
+    setFormData({
+      username: user.username,
+      password: '',
+      name: user.name,
+      email: user.email || '',
+      role: user.role
+    });
     setShowModal(true);
   };
 
-  const closeModal = () => {
-    setShowModal(false);
-    setEditingUser(null);
-    reset();
-  };
 
-  const applyFilters = () => {
-    let filtered = [...users];
-
-    // Search filter
-    if (searchTerm) {
-      filtered = filtered.filter(user =>
-        user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    // Role filter
-    if (selectedRole) {
-      filtered = filtered.filter(user => user.role === selectedRole);
-    }
-
-    // Status filter
-    if (selectedStatus) {
-      filtered = filtered.filter(user => {
-        if (selectedStatus === 'active') return user.isActive;
-        if (selectedStatus === 'inactive') return !user.isActive;
-        return true;
-      });
-    }
-
-    // Sorting
-    filtered.sort((a, b) => {
-      let aValue, bValue;
-
-      switch (sortBy) {
-        case 'name':
-          aValue = a.name.toLowerCase();
-          bValue = b.name.toLowerCase();
-          break;
-        case 'username':
-          aValue = a.username.toLowerCase();
-          bValue = b.username.toLowerCase();
-          break;
-        case 'email':
-          aValue = a.email.toLowerCase();
-          bValue = b.email.toLowerCase();
-          break;
-        case 'role':
-          aValue = a.role.toLowerCase();
-          bValue = b.role.toLowerCase();
-          break;
-        case 'status':
-          aValue = a.isActive ? 1 : 0;
-          bValue = b.isActive ? 1 : 0;
-          break;
-        case 'createdAt':
-          aValue = new Date(a.createdAt);
-          bValue = new Date(b.createdAt);
-          break;
-        default:
-          aValue = a.name.toLowerCase();
-          bValue = b.name.toLowerCase();
-      }
-
-      if (sortOrder === 'asc') {
-        return aValue > bValue ? 1 : -1;
-      } else {
-        return aValue < bValue ? 1 : -1;
-      }
-    });
-
-    setFilteredUsers(filtered);
-  };
-
-  const clearFilters = () => {
-    setSearchTerm('');
-    setSelectedRole('');
-    setSelectedStatus('');
-    setSortBy('name');
-    setSortOrder('asc');
-  };
-
-  const getSortIcon = (field) => {
-    if (sortBy !== field) return null;
-    return sortOrder === 'asc' ? 
-      <ArrowUpIcon className="w-4 h-4" /> : 
-      <ArrowDownIcon className="w-4 h-4" />;
-  };
-
-  const handleSort = (field) => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(field);
-      setSortOrder('asc');
-    }
-  };
-
-  const onSubmit = async (data) => {
-    setSubmitting(true);
-    try {
-      if (editingUser) {
-        const updateData = { ...data };
-        if (!updateData.password) {
-          delete updateData.password;
-        }
-        await axios.put(`/api/users/${editingUser.id}`, updateData);
-        toast.success('User updated successfully!');
-      } else {
-        await axios.post('/api/users', data);
-        toast.success('User created successfully!');
-      }
-      fetchUsers();
-      closeModal();
-    } catch (error) {
-      console.error('Failed to save user:', error);
-      toast.error(error.response?.data?.message || 'Failed to save user');
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const handleDelete = async (userId) => {
-    if (!window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
-      return;
-    }
-
     try {
       await axios.delete(`/api/users/${userId}`);
-      toast.success('User deleted successfully!');
+      toast.success('User deleted successfully');
+      // Remove from selected users if present
+      setSelectedUsers(prev => prev.filter(id => id !== userId));
       fetchUsers();
     } catch (error) {
-      console.error('Failed to delete user:', error);
+      console.error('Error deleting user:', error);
       toast.error('Failed to delete user');
     }
   };
 
-  const toggleActive = async (userId, currentStatus) => {
+  const handleDeleteUser = (user) => {
+    // Get current user from auth context
+    const currentUser = JSON.parse(localStorage.getItem('user'));
+    
+    if (currentUser && currentUser.id === user.id) {
+      toast.error('You cannot delete your own account');
+      return;
+    }
+    
+    setConfirmDialog({
+      open: true,
+      title: 'Delete User',
+      message: `Are you sure you want to delete user "${user.name}"? This action cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      icon: 'delete',
+      type: 'danger',
+      userId: user.id
+    });
+  };
+
+  const handleBulkDelete = async () => {
     try {
-      await axios.patch(`/api/users/${userId}`, {
-        isActive: !currentStatus
-      });
-      toast.success(`User ${currentStatus ? 'deactivated' : 'activated'} successfully!`);
+      await Promise.all(selectedUsers.map(id => axios.delete(`/api/users/${id}`)));
+      toast.success(`${selectedUsers.length} users deleted successfully`);
+      setSelectedUsers([]);
       fetchUsers();
     } catch (error) {
-      console.error('Failed to toggle user status:', error);
+      console.error('Error deleting users:', error);
+      toast.error('Failed to delete some users');
+    }
+  };
+
+  const handleBulkDeleteUsers = () => {
+    setConfirmDialog({
+      open: true,
+      title: 'Delete Multiple Users',
+      message: `Are you sure you want to delete ${selectedUsers.length} selected users? This action cannot be undone.`,
+      confirmText: 'Delete All',
+      cancelText: 'Cancel',
+      icon: 'delete',
+      type: 'danger'
+    });
+  };
+
+  const toggleActive = async (userId, isActive) => {
+    try {
+      await axios.patch(`/api/users/${userId}/toggle-active`);
+      toast.success(`User ${isActive ? 'activated' : 'deactivated'} successfully`);
+      fetchUsers();
+    } catch (error) {
+      console.error('Error toggling user status:', error);
       toast.error('Failed to update user status');
     }
   };
 
-  const openPasswordModal = (user) => {
-    setSelectedUser(user);
-    setShowPasswordModal(true);
+  const handleToggleActive = (user) => {
+    // Get current user from auth context
+    const currentUser = JSON.parse(localStorage.getItem('user'));
+    
+    if (currentUser && currentUser.id === user.id && user.isActive) {
+      toast.error('You cannot deactivate your own account');
+      return;
+    }
+    
+    setConfirmDialog({
+      open: true,
+      title: `${user.isActive ? 'Deactivate' : 'Activate'} User`,
+      message: `Are you sure you want to ${user.isActive ? 'deactivate' : 'activate'} user "${user.name}"?`,
+      confirmText: user.isActive ? 'Deactivate' : 'Activate',
+      cancelText: 'Cancel',
+      icon: user.isActive ? 'visibility_off' : 'visibility',
+      type: 'warning',
+      userId: user.id,
+      isActive: user.isActive
+    });
   };
 
-  const closePasswordModal = () => {
-    setShowPasswordModal(false);
-    setSelectedUser(null);
+  const resetForm = () => {
+    setFormData({
+      username: '',
+      password: '',
+      name: '',
+      email: '',
+      role: 'CASHIER'
+    });
   };
 
-  const resetPassword = async (data) => {
-    try {
-      await axios.post(`/api/users/${selectedUser.id}/reset-password`, {
-        newPassword: data.newPassword
-      });
-      toast.success('Password reset successfully!');
-      closePasswordModal();
-    } catch (error) {
-      console.error('Failed to reset password:', error);
-      toast.error('Failed to reset password');
+  const handleSelectUser = (userId) => {
+    setSelectedUsers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedUsers.length === users.length) {
+      setSelectedUsers([]);
+    } else {
+      setSelectedUsers(users.map(user => user.id));
     }
   };
 
   const getRoleBadge = (role) => {
-    const badges = {
-      ADMIN: 'bg-red-100 text-red-800',
-      CASHIER: 'bg-blue-100 text-blue-800'
+    const colors = {
+      ADMIN: 'bg-blue-100 text-blue-800 border-blue-200',
+      CASHIER: 'bg-green-100 text-green-800 border-green-200'
     };
-    return badges[role] || 'bg-gray-100 text-gray-800';
+    return (
+      <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${colors[role] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
+        {role}
+      </span>
+    );
+  };
+
+  const getStatusBadge = (isActive) => {
+    return (
+      <span className={`inline-flex items-center px-3 py-1 text-xs font-semibold rounded-full border ${
+        isActive 
+          ? 'bg-green-100 text-green-800 border-green-200' 
+          : 'bg-red-100 text-red-800 border-red-200'
+      }`}>
+        <span className={`w-2 h-2 rounded-full mr-2 ${isActive ? 'bg-green-500' : 'bg-red-500'}`}></span>
+        {isActive ? 'Active' : 'Inactive'}
+      </span>
+    );
+  };
+
+  const formatDate = (date) => {
+    return new Date(date).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  const ActionButton = ({ icon, label, onClick, color = 'primary' }) => (
+    <button
+      onClick={onClick}
+      className={`btn-${color} flex items-center space-x-2 px-3 py-2 text-sm`}
+    >
+      <Icon name={icon} size="sm" />
+      <span>{label}</span>
+    </button>
+  );
+
+  // Calculate statistics
+  const stats = {
+    total: users.length,
+    active: users.filter(u => u.isActive).length,
+    inactive: users.filter(u => !u.isActive).length,
+    admins: users.filter(u => u.role === 'ADMIN').length,
+    cashiers: users.filter(u => u.role === 'CASHIER').length
   };
 
   if (loading) {
@@ -281,517 +331,456 @@ const Users = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-        <button
-          onClick={() => openModal()}
-          className="btn-primary"
-        >
-          Add User
-        </button>
+      {/* Header Section */}
+      <div className="card-gradient">
+        {/* Stats Row */}
+        <div className="flex flex-col gap-4 mb-6 pt-8">
+          
+          {/* Status Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+            {/* Total Users */}
+            <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
+              <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-blue-200 mr-3 sm:mr-6">
+                <Icon name="people" className="text-blue-600" size="lg" />
+              </span>
+              <div>
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.total}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">Total Users</div>
+              </div>
+            </div>
+            {/* Active */}
+            <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
+              <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-green-200 mr-3 sm:mr-6">
+                <Icon name="check" className="text-green-600" size="lg" />
+              </span>
+              <div>
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.active}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">Active</div>
+              </div>
+            </div>
+            {/* Inactive */}
+            <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
+              <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-red-200 mr-3 sm:mr-6">
+                <Icon name="error" className="text-red-600" size="lg" />
+              </span>
+              <div>
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.inactive}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">Inactive</div>
+              </div>
+            </div>
+            {/* Admins */}
+            <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
+              <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-purple-200 mr-3 sm:mr-6">
+                <Icon name="admin" className="text-purple-600" size="lg" />
+              </span>
+              <div>
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.admins}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">Admins</div>
+              </div>
+            </div>
+            {/* Cashiers */}
+            <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
+              <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-orange-200 mr-3 sm:mr-6">
+                <Icon name="cashier" className="text-orange-600" size="lg" />
+              </span>
+          <div>
+                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.cashiers}</div>
+                <div className="text-sm sm:text-base text-gray-500 mt-1">Cashiers</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Controls Row */}
+        <div className="flex flex-col sm:flex-row justify-end items-center gap-3 sm:gap-6 w-full pb-8">
+          {selectedUsers.length > 0 && (
+            <ActionButton
+              icon="delete"
+              label={`Delete Selected (${selectedUsers.length})`}
+              onClick={handleBulkDeleteUsers}
+              color="danger"
+            />
+          )}
+          <button
+            className="btn-secondary flex items-center"
+            onClick={() => setShowFilters(v => !v)}
+          >
+            <Icon name="filter" className="mr-2" /> Filters
+          </button>
+          {hasPermission('users.create') && (
+          <button
+            onClick={() => {
+              setEditingUser(null);
+              resetForm();
+              setShowModal(true);
+            }}
+              className="btn-primary flex items-center space-x-2"
+          >
+              <Icon name="add" size="sm" />
+              <span>Add User</span>
+          </button>
+          )}
+        </div>
       </div>
 
-      {/* Search and Filters */}
-      <div className="card">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-medium text-gray-900">Search & Filters</h3>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center space-x-2 text-gray-600 hover:text-gray-900"
-            >
-              <FunnelIcon className="w-5 h-5" />
-              <span>Filters</span>
-            </button>
-          </div>
-          
-          {/* Search Bar */}
-          <div className="mt-4">
+      {/* Filters */}
+      {showFilters && (
+        <div className="card-gradient p-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Search */}
+            <div>
+              <label className="block text-sm font-semibold text-neutral-700 mb-2">Search</label>
             <div className="relative">
-              <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Icon name="search" className="absolute left-3 top-1/2 transform -translate-y-1/2 text-neutral-400" size="sm" />
               <input
                 type="text"
-                placeholder="Search users by name, username, or email..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-              />
-            </div>
-          </div>
-
-          {/* Advanced Filters */}
-          {showFilters && (
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                <select
-                  value={selectedRole}
-                  onChange={(e) => setSelectedRole(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">All Roles</option>
-                  <option value="ADMIN">Admin</option>
-                  <option value="CASHIER">Cashier</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="name">Name</option>
-                  <option value="username">Username</option>
-                  <option value="email">Email</option>
-                  <option value="role">Role</option>
-                  <option value="status">Status</option>
-                  <option value="createdAt">Created Date</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Sort Order</label>
-                <button
-                  type="button"
-                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 flex items-center justify-between"
-                >
-                  <span>{sortOrder === 'asc' ? 'Ascending' : 'Descending'}</span>
-                  {sortOrder === 'asc' ? 
-                    <ArrowUpIcon className="w-4 h-4" /> : 
-                    <ArrowDownIcon className="w-4 h-4" />
-                  }
-                </button>
+                placeholder="Search users..."
+                  value={filters.search}
+                  onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                  className="w-full pl-10 pr-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+                />
               </div>
             </div>
-          )}
 
-          {/* Clear Filters */}
-          {(searchTerm || selectedRole || selectedStatus || sortBy !== 'name' || sortOrder !== 'asc') && (
-            <div className="mt-4">
-              <button
-                onClick={clearFilters}
-                className="text-sm text-gray-600 hover:text-gray-900 underline"
+            {/* Role Filter */}
+            <div>
+              <label className="block text-sm font-semibold text-neutral-700 mb-2">Role</label>
+              <select
+                value={filters.role}
+                onChange={(e) => setFilters(prev => ({ ...prev, role: e.target.value }))}
+                className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
               >
-                Clear all filters
-              </button>
+                <option value="">All Roles</option>
+                <option value="ADMIN">Admin</option>
+                <option value="CASHIER">Cashier</option>
+              </select>
             </div>
-          )}
-        </div>
-      </div>
 
-      {/* Users Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 p-3 rounded-lg bg-blue-100">
-              <span className="text-2xl">👥</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Users</p>
-              <p className="text-2xl font-semibold text-gray-900">{users.length}</p>
+            {/* Status Filter */}
+            <div>
+              <label className="block text-sm font-semibold text-neutral-700 mb-2">Status</label>
+              <select
+                value={filters.status}
+                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+              >
+                <option value="">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
             </div>
           </div>
-        </div>
 
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 p-3 rounded-lg bg-green-100">
-              <span className="text-2xl">✅</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Active Users</p>
-              <p className="text-2xl font-semibold text-gray-900">
-                {users.filter(user => user.isActive).length}
-              </p>
-            </div>
+          {/* Filter Actions */}
+          <div className="flex justify-end gap-3 mt-4">
+            <button
+              onClick={() => {
+                setFilters({ role: '', status: '', search: '' });
+                setPagination(prev => ({ ...prev, page: 1 }));
+              }}
+              className="btn-secondary"
+            >
+              Reset
+            </button>
+            <button
+              onClick={() => setShowFilters(false)}
+              className="btn-primary"
+            >
+              Apply Filters
+            </button>
           </div>
         </div>
+      )}
 
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 p-3 rounded-lg bg-purple-100">
-              <span className="text-2xl">👑</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Admins</p>
-              <p className="text-2xl font-semibold text-gray-900">
-                {users.filter(user => user.role === 'ADMIN').length}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Users Table */}
-      <div className="card">
+            {/* Users List */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">System Users</h3>
-        </div>
+          <div className="flex justify-between items-center">
+              <div>
+              <h3 className="text-xl font-bold text-gradient flex items-center">
+                Users ({pagination.total})
+              </h3>
+              <p className="text-sm text-neutral-600 mt-1">
+                Manage restaurant users and their roles
+              </p>
+            </div>
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedUsers.length === users.length && users.length > 0}
+                onChange={handleSelectAll}
+                onClick={(e) => e.stopPropagation()}
+                className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500 focus:ring-2"
+                aria-label="Select all users"
+              />
+              <span className="text-sm font-medium text-neutral-700">Select All</span>
+            </label>
+          </div>
+      </div>
+
+        {loading ? (
+          <UsersSkeleton rows={5} />
+        ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th 
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort('name')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>User</span>
-                    {getSortIcon('name')}
-                  </div>
-                </th>
-                <th 
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort('username')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Username</span>
-                    {getSortIcon('username')}
-                  </div>
-                </th>
-                <th 
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort('email')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Email</span>
-                    {getSortIcon('email')}
-                  </div>
-                </th>
-                <th 
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort('role')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Role</span>
-                    {getSortIcon('role')}
-                  </div>
-                </th>
-                <th 
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort('status')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Status</span>
-                    {getSortIcon('status')}
-                  </div>
-                </th>
-                <th 
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort('createdAt')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Created</span>
-                    {getSortIcon('createdAt')}
-                  </div>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  User
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
+                  Role
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Created
+                </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredUsers.length > 0 ? (
-                filteredUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50">
+                {users.map((user) => (
+                <tr key={user.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10">
-                          <div className="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
-                            <span className="text-sm font-medium text-gray-700">
-                              {user.name.charAt(0).toUpperCase()}
-                            </span>
+                    <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedUsers.includes(user.id)}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            handleSelectUser(user.id);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500 focus:ring-2 mr-3"
+                        />
+                      <div className="flex-shrink-0 h-10 w-10">
+                          <div className="h-10 w-10 rounded-full bg-gradient-to-r from-primary-400 to-primary-600 flex items-center justify-center text-white font-semibold">
+                            {user.name.charAt(0).toUpperCase()}
                           </div>
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">{user.name}</div>
-                          <div className="text-sm text-gray-500">ID: {user.id}</div>
-                        </div>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {user.username}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {user.email}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleBadge(user.role)}`}>
-                        {user.role}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        user.isActive 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {user.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(user.createdAt).toLocaleDateString()}
-                    </td>
-                                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => openModal(user)}
-                          className="text-primary-600 hover:text-primary-900"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => openPasswordModal(user)}
-                          className="text-yellow-600 hover:text-yellow-900"
-                        >
-                          Reset Password
-                        </button>
-                        <button
-                          onClick={() => toggleActive(user.id, user.isActive)}
-                          className={`${
-                            user.isActive 
-                              ? 'text-yellow-600 hover:text-yellow-900' 
-                              : 'text-green-600 hover:text-green-900'
-                          }`}
-                        >
-                          {user.isActive ? 'Deactivate' : 'Activate'}
-                        </button>
-                        <button
-                          onClick={() => handleDelete(user.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="7" className="px-6 py-12 text-center">
-                    <div className="text-gray-500">
-                      <div className="text-lg font-medium mb-2">No users found</div>
-                      <div className="text-sm">
-                        {searchTerm || selectedRole || selectedStatus 
-                          ? 'Try adjusting your search or filters'
-                          : 'No users available. Add users to start managing the system.'
-                        }
+                      <div className="ml-4">
+                        <div className="text-sm font-medium text-gray-900">{user.name}</div>
+                        <div className="text-sm text-gray-500">{user.username}</div>
+                        {user.email && (
+                          <div className="text-sm text-gray-500">{user.email}</div>
+                        )}
                       </div>
                     </div>
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {getRoleBadge(user.role)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                      {getStatusBadge(user.isActive)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatDate(user.createdAt)}
+                  </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex space-x-2">
+                        {hasPermission('users.update') && (
+                      <button
+                        onClick={() => handleEdit(user)}
+                            className="text-primary-600 hover:text-primary-900"
+                      >
+                            Edit
+                      </button>
+                        )}
+                        {hasPermission('users.update') && (
+                      <button
+                            onClick={() => handleToggleActive(user)}
+                            className={`${
+                              user.isActive 
+                                ? 'text-yellow-600 hover:text-yellow-900' 
+                                : 'text-green-600 hover:text-green-900'
+                            }`}
+                          >
+                            {user.isActive ? 'Deactivate' : 'Activate'}
+                      </button>
+                        )}
+                        {hasPermission('users.delete') && (
+                      <button
+                            onClick={() => handleDeleteUser(user)}
+                        className="text-red-600 hover:text-red-900"
+                      >
+                            Delete
+                      </button>
+                        )}
+                    </div>
+                  </td>
                 </tr>
-              )}
+              ))}
             </tbody>
           </table>
         </div>
+        )}
+
+        {users.length === 0 && !loading && (
+          <div className="text-center py-12">
+            <div className="mx-auto h-12 w-12 text-gray-400">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+              </svg>
+            </div>
+            <h3 className="mt-2 text-sm font-medium text-gray-900">No users found</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              {filters.search || filters.role || filters.status
+                ? 'Try adjusting your filters to find what you\'re looking for.'
+                : 'Get started by creating your first user.'}
+            </p>
+            {!filters.search && !filters.role && !filters.status && hasPermission('users.create') && (
+              <div className="mt-6">
+                <button
+                  onClick={() => {
+                    setEditingUser(null);
+                    resetForm();
+                    setShowModal(true);
+                  }}
+                  className="btn-primary"
+                >
+                  Add User
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Add/Edit User Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-medium text-gray-900">
-                  {editingUser ? 'Edit User' : 'Add New User'}
-                </h3>
-                <button
-                  onClick={closeModal}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  ✕
-                </button>
+        <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b border-neutral-200">
+              <h2 className="text-xl font-bold text-neutral-900">
+                {editingUser ? 'Edit User' : 'Add New User'}
+              </h2>
+            </div>
+            
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                  Username *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.username}
+                  onChange={(e) => setFormData({...formData, username: e.target.value})}
+                  className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+                  disabled={!!editingUser}
+                />
               </div>
 
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Username *
-                  </label>
-                  <input
-                    {...register('username')}
-                    type="text"
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                      errors.username ? 'border-red-300' : 'border-gray-300'
-                    }`}
-                    placeholder="Enter username"
-                  />
-                  {errors.username && (
-                    <p className="mt-1 text-sm text-red-600">{errors.username.message}</p>
-                  )}
-                </div>
+              <div>
+                <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                  {editingUser ? 'New Password (leave blank to keep current)' : 'Password *'}
+                </label>
+                <input
+                  type="password"
+                  required={!editingUser}
+                  value={formData.password}
+                  onChange={(e) => setFormData({...formData, password: e.target.value})}
+                  className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+                />
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Full Name *
-                  </label>
-                  <input
-                    {...register('name')}
-                    type="text"
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                      errors.name ? 'border-red-300' : 'border-gray-300'
-                    }`}
-                    placeholder="Enter full name"
-                  />
-                  {errors.name && (
-                    <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>
-                  )}
-                </div>
+              <div>
+                <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                  Full Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+                />
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Email Address *
-                  </label>
-                  <input
-                    {...register('email')}
-                    type="email"
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                      errors.email ? 'border-red-300' : 'border-gray-300'
-                    }`}
-                    placeholder="Enter email address"
-                  />
-                  {errors.email && (
-                    <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
-                  )}
-                </div>
+              <div>
+                <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({...formData, email: e.target.value})}
+                  className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+                  placeholder="user@example.com"
+                />
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Password {!editingUser && '*'}
-                  </label>
-                  <input
-                    {...register('password')}
-                    type="password"
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                      errors.password ? 'border-red-300' : 'border-gray-300'
-                    }`}
-                    placeholder={editingUser ? "Leave blank to keep current password" : "Enter password"}
-                  />
-                  {errors.password && (
-                    <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>
-                  )}
-                  {editingUser && (
-                    <p className="mt-1 text-sm text-gray-500">Leave blank to keep current password</p>
-                  )}
-                </div>
+              <div>
+                <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                  Role *
+                </label>
+                <select
+                  required
+                  value={formData.role}
+                  onChange={(e) => setFormData({...formData, role: e.target.value})}
+                  className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+                >
+                  <option value="CASHIER">Cashier</option>
+                  <option value="ADMIN">Admin</option>
+                </select>
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Role *
-                  </label>
-                  <select
-                    {...register('role')}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                      errors.role ? 'border-red-300' : 'border-gray-300'
-                    }`}
-                  >
-                    <option value="">Select role</option>
-                    <option value="CASHIER">Cashier</option>
-                    <option value="ADMIN">Admin</option>
-                  </select>
-                  {errors.role && (
-                    <p className="mt-1 text-sm text-red-600">{errors.role.message}</p>
+              <div className="flex items-center justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowModal(false);
+                    setEditingUser(null);
+                    resetForm();
+                  }}
+                  className="btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="btn-primary"
+                >
+                  {actionLoading ? (
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>{editingUser ? 'Updating...' : 'Creating...'}</span>
+                    </div>
+                  ) : (
+                    editingUser ? 'Update User' : 'Create User'
                   )}
-                </div>
-
-                <div className="flex justify-end space-x-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    className="btn-secondary"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {submitting ? (
-                      <div className="flex items-center">
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                        Saving...
-                      </div>
-                    ) : (
-                      editingUser ? 'Update User' : 'Create User'
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* Reset Password Modal */}
-      {showPasswordModal && selectedUser && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-medium text-gray-900">
-                  Reset Password - {selectedUser.name}
-                </h3>
-                <button
-                  onClick={closePasswordModal}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <form onSubmit={handleSubmit(resetPassword)} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    New Password *
-                  </label>
-                  <input
-                    {...register('newPassword')}
-                    type="password"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    placeholder="Enter new password"
-                    minLength="6"
-                    required
-                  />
-                </div>
-
-                <div className="flex justify-end space-x-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={closePasswordModal}
-                    className="btn-secondary"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn-primary"
-                  >
-                    Reset Password
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText={confirmDialog.confirmText}
+        cancelText={confirmDialog.cancelText}
+        icon={confirmDialog.icon}
+        type={confirmDialog.type}
+        onConfirm={() => {
+          if (confirmDialog.title === 'Delete User') {
+            handleDelete(confirmDialog.userId);
+          } else if (confirmDialog.title === 'Delete Multiple Users') {
+            handleBulkDelete();
+          } else if (confirmDialog.title.includes('Activate') || confirmDialog.title.includes('Deactivate')) {
+            toggleActive(confirmDialog.userId, !confirmDialog.isActive);
+          }
+          setConfirmDialog({ open: false });
+        }}
+        onCancel={() => setConfirmDialog({ open: false })}
+      />
     </div>
   );
 };

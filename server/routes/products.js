@@ -2,9 +2,51 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
 const { requirePermission } = require('../middleware/permissions');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const router = express.Router();
 const prisma = new PrismaClient();
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, '../uploads');
+    // Create uploads directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // Generate unique filename with timestamp
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'product-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const fileFilter = (req, file, cb) => {
+  // Accept only image files
+  if (file.mimetype.startsWith('image/')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image files are allowed!'), false);
+  }
+};
+
+const upload = multer({ 
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  }
+});
+
+// Test route
+router.get('/test', (req, res) => {
+  res.json({ message: 'Products route is working!' });
+});
 
 // Get all products with advanced filtering and sorting
 router.get('/', requirePermission('products.view'), async (req, res) => {
@@ -123,30 +165,33 @@ router.get('/:id', requirePermission('products.view'), async (req, res) => {
 });
 
 // Create new product
-router.post('/', requirePermission('products.create'), [
-  body('name').notEmpty().withMessage('Product name is required'),
-  body('price').isFloat({ min: 0 }).withMessage('Price must be a positive number'),
-  body('categoryId').isInt().withMessage('Category ID is required'),
-  body('isDrink').isBoolean().withMessage('isDrink must be a boolean'),
-  body('description').optional().isString(),
-  body('imageUrl').optional().isURL().withMessage('Image URL must be a valid URL')
-], async (req, res) => {
+router.post('/', requirePermission('products.create'), upload.single('image'), async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
+    console.log('Received product data:', req.body);
+    console.log('Received file:', req.file);
+
+    const { name, price, categoryId, isDrink, description } = req.body;
+    let imageUrl = null;
+
+    // Handle uploaded file
+    if (req.file) {
+      imageUrl = `/uploads/${req.file.filename}`;
+    }
+
+    // Basic validation
+    if (!name || !price || !categoryId) {
       return res.status(400).json({
         success: false,
-        message: 'Validation error',
-        errors: errors.array()
+        message: 'Missing required fields: name, price, and categoryId are required'
       });
     }
 
-    const { name, price, categoryId, isDrink, description, imageUrl } = req.body;
-
     // Check if category exists
+    console.log('Looking for category with ID:', parseInt(categoryId));
     const category = await prisma.category.findUnique({
-      where: { id: categoryId }
+      where: { id: parseInt(categoryId) }
     });
+    console.log('Found category:', category);
 
     if (!category) {
       return res.status(400).json({
@@ -156,16 +201,27 @@ router.post('/', requirePermission('products.create'), [
     }
 
     // Create product
+    console.log('Creating product with data:', {
+      name,
+      price,
+      categoryId: parseInt(categoryId),
+      isDrink: Boolean(isDrink),
+      description,
+      imageUrl
+    });
+    
     const product = await prisma.product.create({
       data: {
         name,
         price,
-        categoryId,
-        isDrink,
+        categoryId: parseInt(categoryId),
+        isDrink: Boolean(isDrink),
         description,
         imageUrl
       }
     });
+    
+    console.log('Product created successfully:', product);
 
     // Get product with relations
     const productWithRelations = await prisma.product.findUnique({
@@ -241,12 +297,12 @@ router.patch('/:id', requirePermission('products.edit'), [
 });
 
 // Update product
-router.put('/:id', requirePermission('products.edit'), [
+router.put('/:id', requirePermission('products.edit'), upload.single('image'), [
   body('name').notEmpty().withMessage('Product name is required'),
   body('price').isFloat({ min: 0 }).withMessage('Price must be a positive number'),
-  body('categoryId').isInt().withMessage('Category ID is required'),
-  body('description').optional().isString(),
-  body('imageUrl').optional().isURL().withMessage('Image URL must be a valid URL')
+  body('categoryId').notEmpty().withMessage('Category ID is required'),
+  body('isDrink').optional(),
+  body('description').optional().isString()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -258,8 +314,14 @@ router.put('/:id', requirePermission('products.edit'), [
       });
     }
 
-    const { name, price, categoryId, description, imageUrl } = req.body;
+    const { name, price, categoryId, isDrink, description } = req.body;
     const productId = parseInt(req.params.id);
+    let imageUrl = null;
+
+    // Handle uploaded file
+    if (req.file) {
+      imageUrl = `/uploads/${req.file.filename}`;
+    }
 
     // Check if product exists
     const existingProduct = await prisma.product.findUnique({
@@ -275,7 +337,7 @@ router.put('/:id', requirePermission('products.edit'), [
 
     // Check if category exists
     const category = await prisma.category.findUnique({
-      where: { id: categoryId }
+      where: { id: parseInt(categoryId) }
     });
 
     if (!category) {
@@ -290,7 +352,8 @@ router.put('/:id', requirePermission('products.edit'), [
       data: {
         name,
         price,
-        categoryId,
+        categoryId: parseInt(categoryId),
+        isDrink: Boolean(isDrink),
         description,
         imageUrl
       },
@@ -313,26 +376,44 @@ router.put('/:id', requirePermission('products.edit'), [
   }
 });
 
-// Delete product (soft delete)
+// Delete product (hard delete)
 router.delete('/:id', requirePermission('products.delete'), async (req, res) => {
   try {
     const productId = parseInt(req.params.id);
+    console.log('Attempting to delete product with ID:', productId);
 
     const product = await prisma.product.findUnique({
-      where: { id: productId }
+      where: { id: productId },
+      include: {
+        orderItems: true
+      }
     });
 
     if (!product) {
+      console.log('Product not found with ID:', productId);
       return res.status(404).json({
         success: false,
         message: 'Product not found'
       });
     }
 
-    await prisma.product.update({
-      where: { id: productId },
-      data: { isActive: false }
+    console.log('Found product to delete:', product.name);
+    console.log('Product has', product.orderItems.length, 'order items');
+
+    // Check if product has orders
+    if (product.orderItems.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete product "${product.name}" because it has ${product.orderItems.length} order(s). Please deactivate the product instead.`
+      });
+    }
+
+    // Perform hard delete
+    await prisma.product.delete({
+      where: { id: productId }
     });
+
+    console.log('Product deleted successfully:', productId);
 
     res.json({
       success: true,

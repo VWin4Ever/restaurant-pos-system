@@ -270,7 +270,7 @@ router.get('/top-products', requirePermission('reports.view'), async (req, res) 
 });
 
 // Export sales report as CSV
-router.get('/export', requirePermission('reports.export'), async (req, res) => {
+router.get('/export', requirePermission('reports.view'), async (req, res) => {
   try {
     const { range = 'today' } = req.query;
     
@@ -389,7 +389,7 @@ router.get('/order-stats', requirePermission('reports.view'), async (req, res) =
 });
 
 // Get stock report
-router.get('/stock', requirePermission('stock.view'), async (req, res) => {
+router.get('/stock', requirePermission('stock', 'read'), async (req, res) => {
   try {
     const { lowStock, page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -449,7 +449,7 @@ router.get('/stock', requirePermission('stock.view'), async (req, res) => {
 });
 
 // Get cashier dashboard data
-router.get('/cashier-dashboard', requirePermission('system.dashboard'), async (req, res) => {
+router.get('/cashier-dashboard', requirePermission('reports.view'), async (req, res) => {
   try {
     const userId = req.user.id;
     const today = new Date();

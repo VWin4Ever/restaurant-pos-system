@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
+const { requirePermission } = require('../middleware/permissions');
 
 const router = express.Router();
 const prisma = new PrismaClient();

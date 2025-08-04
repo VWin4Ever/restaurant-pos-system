@@ -1,98 +1,45 @@
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
-
-// Define permissions for each role
+// Simple role-based permissions middleware
 const ROLE_PERMISSIONS = {
   ADMIN: [
-    // User Management
-    'users.view',
-    'users.create',
-    'users.edit',
-    'users.delete',
-    'users.reset-password',
-    
-    // Product Management
-    'products.view',
-    'products.create',
-    'products.edit',
-    'products.delete',
-    'products.import',
-    'products.export',
-    
-    // Category Management
-    'categories.view',
-    'categories.create',
-    'categories.edit',
-    'categories.delete',
-    
-    // Stock Management
-    'stock.view',
-    'stock.adjust',
-    'stock.logs',
-    
-    // Order Management
-    'orders.view',
-    'orders.create',
-    'orders.edit',
-    'orders.delete',
-    'orders.cancel',
-    'orders.complete',
-    'orders.process-payment',
-    
-    // Table Management
-    'tables.view',
-    'tables.create',
-    'tables.edit',
-    'tables.delete',
-    'tables.change-status',
-    
-    // Reports
-    'reports.view',
-    'reports.export',
-    'reports.analytics',
-    
-    // Settings
-    'settings.view',
-    'settings.edit',
-    'settings.backup',
-    'settings.reset',
-    
-    // System
-    'system.dashboard',
-    'system.notifications'
+    'orders.*',
+    'products.*',
+    'categories.*',
+    'tables.*',
+    'stock.*',
+    'reports.*',
+    'settings.*',
+    'users.*'
   ],
-  
   CASHIER: [
-    // Order Management (limited)
-    'orders.view',
     'orders.create',
-    'orders.edit',
-    'orders.complete',
-    'orders.process-payment',
-    
-    // Table Management (limited)
-    'tables.view',
-    'tables.change-status',
-    
-    // Product Management (view only)
+    'orders.read',
+    'orders.update',
     'products.view',
-    
-    // Category Management (view only)
     'categories.view',
-    
-    // System
-    'system.dashboard'
+    'tables.read',
+    'tables.update',
+    'stock.read',
+    'stock.update'
   ]
 };
 
-// Check if user has specific permission
+// Check if user has permission
 const hasPermission = (userRole, permission) => {
-  const permissions = ROLE_PERMISSIONS[userRole] || [];
-  return permissions.includes(permission);
+  const userPermissions = ROLE_PERMISSIONS[userRole] || [];
+  
+  // Check exact permission
+  if (userPermissions.includes(permission)) {
+    return true;
+  }
+  
+  // Check wildcard permissions (e.g., 'orders.*' matches 'orders.create')
+  const [module, action] = permission.split('.');
+  const wildcardPermission = `${module}.*`;
+  
+  return userPermissions.includes(wildcardPermission);
 };
 
-// Middleware to check specific permission
+// Middleware to require specific permission
 const requirePermission = (permission) => {
   return (req, res, next) => {
     if (!req.user) {
@@ -113,7 +60,7 @@ const requirePermission = (permission) => {
   };
 };
 
-// Middleware to check multiple permissions (any of them)
+// Middleware to require any of multiple permissions
 const requireAnyPermission = (permissions) => {
   return (req, res, next) => {
     if (!req.user) {
@@ -138,7 +85,7 @@ const requireAnyPermission = (permissions) => {
   };
 };
 
-// Middleware to check multiple permissions (all of them)
+// Middleware to require all permissions
 const requireAllPermissions = (permissions) => {
   return (req, res, next) => {
     if (!req.user) {
@@ -168,7 +115,7 @@ const getUserPermissions = (userRole) => {
   return ROLE_PERMISSIONS[userRole] || [];
 };
 
-// Check if user can perform action on resource
+// Check if user can perform action
 const canPerformAction = (userRole, action, resource) => {
   const permission = `${resource}.${action}`;
   return hasPermission(userRole, permission);

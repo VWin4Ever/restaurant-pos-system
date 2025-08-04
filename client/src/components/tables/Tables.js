@@ -19,16 +19,14 @@ const Tables = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [newTable, setNewTable] = useState({ number: '', capacity: 4 });
   const [editingTable, setEditingTable] = useState({});
-  const [lastUpdated, setLastUpdated] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
-  const [websocketConnected, setWebsocketConnected] = useState(false);
   const [selectedTableIds, setSelectedTableIds] = useState([]);
   const [groupFilter, setGroupFilter] = useState('ALL');
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyTable, setHistoryTable] = useState(null);
   const [tableHistory, setTableHistory] = useState({ orders: [], stats: {} });
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
 
   // Auto-refresh interval (30 seconds)
   const REFRESH_INTERVAL = 30000;
@@ -41,7 +39,6 @@ const Tables = () => {
     try {
       const response = await axios.get('/api/tables');
       setTables(response.data.data);
-      setLastUpdated(new Date());
     } catch (error) {
       console.error('Failed to fetch tables:', error);
       toast.error('Failed to load tables');
@@ -58,14 +55,12 @@ const Tables = () => {
 
   // Auto-refresh setup
   useEffect(() => {
-    if (!autoRefreshEnabled) return;
-
     const interval = setInterval(() => {
       fetchTables();
     }, REFRESH_INTERVAL);
 
     return () => clearInterval(interval);
-  }, [fetchTables, autoRefreshEnabled]);
+  }, [fetchTables]);
 
   // WebSocket setup
   useEffect(() => {
@@ -78,7 +73,6 @@ const Tables = () => {
             table.id === data.table.id ? data.table : table
           )
         );
-        setLastUpdated(new Date());
         toast.info(`Table ${data.table.number} status updated to ${data.table.status}`);
       } else if (data.type === 'tables_refresh') {
         // Refresh all tables
@@ -88,7 +82,6 @@ const Tables = () => {
 
     // Subscribe to connection status
     const unsubscribeConnection = websocketService.subscribe('connection', (data) => {
-      setWebsocketConnected(data.status === 'connected');
       if (data.status === 'disconnected') {
         toast.warning('Real-time updates disconnected');
       }
@@ -108,17 +101,7 @@ const Tables = () => {
   };
 
   // Format last updated time
-  const formatLastUpdated = (date) => {
-    if (!date) return 'Never';
-    const now = new Date();
-    const diff = now - date;
-    const seconds = Math.floor(diff / 1000);
-    const minutes = Math.floor(seconds / 60);
-    
-    if (seconds < 60) return `${seconds}s ago`;
-    if (minutes < 60) return `${minutes}m ago`;
-    return date.toLocaleTimeString();
-  };
+
 
   const updateTableStatus = async (tableId, newStatus) => {
     try {
@@ -275,138 +258,138 @@ const Tables = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tables Management</h1>
-          <p className="text-gray-600 mt-1">Manage restaurant tables and their status</p>
-          <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-            <span>Last updated: {formatLastUpdated(lastUpdated)}</span>
-            <div className="flex items-center gap-2">
-              <span className={`flex items-center gap-1 ${websocketConnected ? 'text-green-600' : 'text-red-600'}`}>
-                <span className={`w-2 h-2 rounded-full ${websocketConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                {websocketConnected ? 'Live' : 'Offline'}
-              </span>
-              <label className="flex items-center gap-1">
-                <input
-                  type="checkbox"
-                  checked={autoRefreshEnabled}
-                  onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
-                  className="rounded"
-                />
-                Auto-refresh
-              </label>
+            {/* Header */}
+      <div className="card-gradient p-4 sm:p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
+        {/* Status Cards Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
+          <div className="card-gradient p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs sm:text-sm text-gray-600">Total Tables</p>
+                <p className="text-lg sm:text-2xl font-bold text-gray-900">{tables.length}</p>
+              </div>
+              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+                <span className="text-2xl">🪑</span>
+              </div>
+            </div>
+          </div>
+          <div className="card-gradient p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs sm:text-sm text-gray-600">Available</p>
+                <p className="text-lg sm:text-2xl font-bold text-success-600">{getStatusCount('AVAILABLE')}</p>
+              </div>
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                <span className="text-2xl">🟢</span>
+              </div>
+            </div>
+          </div>
+          <div className="card-gradient p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs sm:text-sm text-gray-600">Occupied</p>
+                <p className="text-lg sm:text-2xl font-bold text-warning-600">{getStatusCount('OCCUPIED')}</p>
+              </div>
+              <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                <span className="text-2xl">🟡</span>
+              </div>
+            </div>
+          </div>
+          <div className="card-gradient p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs sm:text-sm text-gray-600">Reserved</p>
+                <p className="text-lg sm:text-2xl font-bold text-primary-600">{getStatusCount('RESERVED')}</p>
+              </div>
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                <span className="text-2xl">🔵</span>
+              </div>
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handleManualRefresh}
-            disabled={isRefreshing}
-            className="btn btn-secondary flex items-center gap-2"
-          >
-            <span className={isRefreshing ? 'animate-spin' : ''}>
-              {isRefreshing ? '🔄' : '🔄'}
-            </span>
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-          {hasPermission('tables.create') && (
+        
+        {/* Action Buttons Row */}
+        <div className="flex flex-col sm:flex-row justify-end items-start sm:items-center gap-4">
+          <div className="flex gap-2">
             <button
-              onClick={() => setShowAddModal(true)}
-              className="btn btn-primary flex items-center gap-2"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="btn-secondary flex items-center px-4 py-2 rounded-lg text-sm font-semibold shadow-sm"
             >
-              <span>➕</span>
-              Add Table
+              <span className={isRefreshing ? 'animate-spin mr-2' : 'mr-2'}>
+                {isRefreshing ? '🔄' : '🔄'}
+              </span>
+              {isRefreshing ? 'Refreshing...' : 'Refresh'}
             </button>
-          )}
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="btn-secondary flex items-center px-4 py-2 rounded-lg text-sm font-semibold shadow-sm border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+            >
+              <span className="mr-2">🔍</span>
+              Filters
+            </button>
+            {hasPermission('tables.create') && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="btn-primary flex items-center px-4 py-2 rounded-lg text-sm font-semibold shadow-sm"
+              >
+                <span className="mr-2">➕</span>
+                Add Table
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="card p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Total Tables</p>
-              <p className="text-2xl font-bold text-gray-900">{tables.length}</p>
-            </div>
-            <div className="text-3xl">🪑</div>
-          </div>
-        </div>
-        <div className="card p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Available</p>
-              <p className="text-2xl font-bold text-success-600">{getStatusCount('AVAILABLE')}</p>
-            </div>
-            <div className="text-3xl">🟢</div>
-          </div>
-        </div>
-        <div className="card p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Occupied</p>
-              <p className="text-2xl font-bold text-warning-600">{getStatusCount('OCCUPIED')}</p>
-            </div>
-            <div className="text-3xl">🟡</div>
-          </div>
-        </div>
-        <div className="card p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Reserved</p>
-              <p className="text-2xl font-bold text-primary-600">{getStatusCount('RESERVED')}</p>
-            </div>
-            <div className="text-3xl">🔵</div>
-          </div>
-        </div>
-      </div>
+
 
       {/* Filters */}
-      <div className="card p-4">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Search Tables</label>
-            <input
-              type="text"
-              placeholder="Search by table number..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="input"
-            />
-          </div>
-          <div className="sm:w-48">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Status</label>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="input"
-            >
-              <option value="ALL">All Status</option>
-              <option value="AVAILABLE">Available</option>
-              <option value="OCCUPIED">Occupied</option>
-              <option value="RESERVED">Reserved</option>
-            </select>
-          </div>
-          <div className="sm:w-48">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Group/Area</label>
-            <select
-              value={groupFilter}
-              onChange={(e) => setGroupFilter(e.target.value)}
-              className="input"
-            >
-              <option value="ALL">All Groups</option>
-              {allGroups.map(group => (
-                <option key={group} value={group}>{group}</option>
-              ))}
-            </select>
+      {showFilters && (
+        <div className="card-gradient p-4">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Search Tables</label>
+              <input
+                type="text"
+                placeholder="Search by table number..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="input"
+              />
+            </div>
+            <div className="sm:w-48">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Status</label>
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="input"
+              >
+                <option value="ALL">All Status</option>
+                <option value="AVAILABLE">Available</option>
+                <option value="OCCUPIED">Occupied</option>
+                <option value="RESERVED">Reserved</option>
+              </select>
+            </div>
+            <div className="sm:w-48">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Group/Area</label>
+              <select
+                value={groupFilter}
+                onChange={(e) => setGroupFilter(e.target.value)}
+                className="input"
+              >
+                <option value="ALL">All Groups</option>
+                {allGroups.map(group => (
+                  <option key={group} value={group}>{group}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Bulk Actions Bar */}
       {selectedTableIds.length > 0 && hasPermission('tables.edit') && (
-        <div className="card p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-2 border-primary-200 bg-primary-50 mb-4">
+        <div className="card-gradient p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-2 border-primary-200 bg-primary-50 mb-4">
           <div className="flex flex-wrap gap-2 items-center">
             <span className="font-medium text-primary-700">{selectedTableIds.length} table(s) selected</span>
             <button onClick={selectAllTables} className="btn btn-secondary btn-xs">Select All</button>
@@ -427,7 +410,7 @@ const Tables = () => {
           {filteredTables.map((table) => (
             <div
               key={table.id}
-              className={`card p-4 text-center cursor-pointer transition-all duration-200 hover:shadow-lg focus-within:shadow-lg hover:border-primary-300 focus-within:border-primary-400 min-h-[220px] flex flex-col justify-between ${
+              className={`card-gradient p-4 text-center cursor-pointer transition-all duration-200 hover:shadow-lg focus-within:shadow-lg hover:border-primary-300 focus-within:border-primary-400 min-h-[220px] flex flex-col justify-between ${
                 table.status === 'AVAILABLE' 
                   ? 'hover:bg-green-50 border-green-200' 
                   : table.status === 'OCCUPIED'
@@ -507,7 +490,7 @@ const Tables = () => {
       </div>
 
       {filteredTables.length === 0 && (
-        <div className="card p-8 text-center">
+        <div className="card-gradient p-8 text-center">
           <div className="text-4xl mb-4">🪑</div>
           <h3 className="text-lg font-medium text-gray-900 mb-2">No tables found</h3>
           <p className="text-gray-600">Try adjusting your search or filter criteria.</p>
@@ -516,7 +499,7 @@ const Tables = () => {
 
       {/* Status Change Modal */}
       {showStatusModal && selectedTable && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 className="text-lg font-medium text-gray-900 mb-4">
               Change Table {selectedTable.number} Status
@@ -556,7 +539,7 @@ const Tables = () => {
 
       {/* Add Table Modal */}
       {showAddModal && (
-        <div className="modal-backdrop" onClick={() => setShowAddModal(false)}>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowAddModal(false)}>
           <div className="bg-white rounded-lg p-6 w-full max-w-md modal-fade-in" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-medium text-gray-900 mb-4">Add New Table</h3>
             <div className="space-y-4">
@@ -636,7 +619,7 @@ const Tables = () => {
 
       {/* Edit Table Modal */}
       {showEditModal && editingTable.id && (
-        <div className="modal-backdrop" onClick={() => setShowEditModal(false)}>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowEditModal(false)}>
           <div className="bg-white rounded-lg p-6 w-full max-w-md modal-fade-in" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-medium text-gray-900 mb-4">Edit Table {editingTable.number}</h3>
             <div className="space-y-4">
@@ -725,28 +708,11 @@ const Tables = () => {
         confirmClass="btn-danger"
       />
 
-      {/* Status Legend */}
-      <div className="card p-4">
-        <h3 className="text-lg font-medium text-gray-900 mb-3">Table Status Legend</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="flex items-center">
-            <span className="table-status table-status-available mr-2">AVAILABLE</span>
-            <span className="text-sm text-gray-600">Ready for customers</span>
-          </div>
-          <div className="flex items-center">
-            <span className="table-status table-status-occupied mr-2">OCCUPIED</span>
-            <span className="text-sm text-gray-600">Currently in use</span>
-          </div>
-          <div className="flex items-center">
-            <span className="table-status table-status-reserved mr-2">RESERVED</span>
-            <span className="text-sm text-gray-600">Reserved for later</span>
-          </div>
-        </div>
-      </div>
+
 
       {/* Table History Modal */}
       {showHistoryModal && historyTable && (
-        <div className="modal-backdrop" onClick={closeHistoryModal}>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={closeHistoryModal}>
           <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto modal-fade-in" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-900">Table {historyTable.number} History & Stats</h3>
@@ -764,23 +730,23 @@ const Tables = () => {
               <>
                 {/* Stats */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  <div className="card p-3 text-center">
+                  <div className="card-gradient p-3 text-center">
                     <div className="text-xs text-gray-500">Total Orders</div>
                     <div className="text-xl font-bold">{tableHistory.stats.totalOrders || 0}</div>
                   </div>
-                  <div className="card p-3 text-center">
+                  <div className="card-gradient p-3 text-center">
                     <div className="text-xs text-gray-500">Total Revenue</div>
                     <div className="text-xl font-bold">${parseFloat(tableHistory.stats.totalRevenue || 0).toFixed(2)}</div>
                   </div>
-                  <div className="card p-3 text-center">
+                  <div className="card-gradient p-3 text-center">
                     <div className="text-xs text-gray-500">Avg Order Value</div>
                     <div className="text-xl font-bold">${parseFloat(tableHistory.stats.avgOrderValue || 0).toFixed(2)}</div>
                   </div>
-                  <div className="card p-3 text-center">
+                  <div className="card-gradient p-3 text-center">
                     <div className="text-xs text-gray-500">Orders Today</div>
                     <div className="text-xl font-bold">{tableHistory.stats.ordersToday || 0}</div>
                   </div>
-                  <div className="card p-3 text-center">
+                  <div className="card-gradient p-3 text-center">
                     <div className="text-xs text-gray-500">Revenue Today</div>
                     <div className="text-xl font-bold">${parseFloat(tableHistory.stats.revenueToday || 0).toFixed(2)}</div>
                   </div>
