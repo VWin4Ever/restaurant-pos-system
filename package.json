@@ -11,8 +11,7 @@
     "install-all": "npm install && cd server && npm install && cd ../client && npm install",
     "setup-db": "cd server && npm run db:setup",
     "setup": "npm run install-all && npm run setup-db",
-    "start": "cd server && npm start",
-    "postinstall": "npm run install-all"
+    "start": "cd server && npm start"
   },
   "keywords": [
     "pos",
