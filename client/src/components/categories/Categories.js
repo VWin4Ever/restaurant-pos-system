@@ -290,51 +290,43 @@ const Categories = () => {
       <div className="card-gradient p-4 sm:p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
         {/* Status Cards Row */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
-          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-2 rounded-lg bg-blue-100">
-                <span className="text-xl">📂</span>
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Total Categories</p>
+                <p className="text-3xl font-bold">{stats.total}</p>
               </div>
-              <div className="ml-3">
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.total}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">Total Categories</div>
-              </div>
+              <div className="text-4xl">📂</div>
             </div>
           </div>
 
-          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-2 rounded-lg bg-green-100">
-                <span className="text-xl">✅</span>
+          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Active</p>
+                <p className="text-3xl font-bold">{stats.active}</p>
               </div>
-              <div className="ml-3">
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.active}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">Active</div>
-              </div>
+              <div className="text-4xl">✅</div>
             </div>
           </div>
 
-          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-2 rounded-lg bg-red-100">
-                <span className="text-xl">❌</span>
+          <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Inactive</p>
+                <p className="text-3xl font-bold">{stats.inactive}</p>
               </div>
-              <div className="ml-3">
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.inactive}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">Inactive</div>
-              </div>
+              <div className="text-4xl">❌</div>
             </div>
           </div>
 
-          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-2 rounded-lg bg-purple-100">
-                <span className="text-xl">🍽️</span>
+          <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Total Products</p>
+                <p className="text-3xl font-bold">{stats.totalProducts}</p>
               </div>
-              <div className="ml-3">
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.totalProducts}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">Total Products</div>
-              </div>
+              <div className="text-4xl">🍽️</div>
             </div>
           </div>
         </div>

@@ -387,33 +387,33 @@ const Orders = () => {
         {/* Status Cards Row */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
           {/* Pending */}
-          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
-            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-orange-200 mr-3 sm:mr-6">
-              <Icon name="clock" className="text-orange-600" size="lg" />
-            </span>
-            <div>
-              <div className="text-lg sm:text-2xl font-bold text-gray-900">{orders.filter(order => order.status === 'PENDING').length}</div>
-              <div className="text-sm sm:text-base text-gray-500 mt-1">Pending Orders</div>
+          <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Pending Orders</p>
+                <p className="text-3xl font-bold">{orders.filter(order => order.status === 'PENDING').length}</p>
+              </div>
+              <div className="text-4xl">⏳</div>
             </div>
           </div>
           {/* Completed */}
-          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
-            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-green-200 mr-3 sm:mr-6">
-              <Icon name="check" className="text-green-600" size="lg" />
-            </span>
-            <div>
-              <div className="text-lg sm:text-2xl font-bold text-gray-900">{orders.filter(order => order.status === 'COMPLETED').length}</div>
-              <div className="text-sm sm:text-base text-gray-500 mt-1">Completed Orders</div>
+          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Completed Orders</p>
+                <p className="text-3xl font-bold">{orders.filter(order => order.status === 'COMPLETED').length}</p>
+              </div>
+              <div className="text-4xl">✅</div>
             </div>
           </div>
           {/* Cancelled */}
-          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
-            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-red-200 mr-3 sm:mr-6">
-              <Icon name="error" className="text-red-600" size="lg" />
-            </span>
-            <div>
-              <div className="text-lg sm:text-2xl font-bold text-gray-900">{orders.filter(order => order.status === 'CANCELLED').length}</div>
-              <div className="text-sm sm:text-base text-gray-500 mt-1">Cancelled Orders</div>
+          <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Cancelled Orders</p>
+                <p className="text-3xl font-bold">{orders.filter(order => order.status === 'CANCELLED').length}</p>
+              </div>
+              <div className="text-4xl">❌</div>
             </div>
           </div>
         </div>

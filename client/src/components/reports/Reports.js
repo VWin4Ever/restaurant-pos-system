@@ -1,420 +1,334 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import LoadingSpinner from '../common/LoadingSpinner';
+import SalesReports from './SalesReports';
+import StaffReports from './StaffReports';
+import InventoryReports from './InventoryReports';
+import FinancialReports from './FinancialReports';
 
 const Reports = () => {
-  const [dashboardData, setDashboardData] = useState(null);
-  const [salesData, setSalesData] = useState([]);
-  const [recentOrders, setRecentOrders] = useState([]);
-  const [topProducts, setTopProducts] = useState([]);
-  const [orderStats, setOrderStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [loading, setLoading] = useState(false);
   const [dateRange, setDateRange] = useState('today');
-  const [exporting, setExporting] = useState(false);
+  const [customDateRange, setCustomDateRange] = useState({
+    startDate: '',
+    endDate: ''
+  });
+  const [quickStats, setQuickStats] = useState({});
 
+  // Simplified, restaurant-focused tabs
+  const tabs = [
+    { 
+      id: 'overview', 
+      name: '📊 Overview', 
+      description: 'Quick summary and key metrics',
+      color: 'bg-blue-500'
+    },
+    { 
+      id: 'sales', 
+      name: '💰 Sales', 
+      description: 'Revenue, orders, and menu performance',
+      color: 'bg-green-500'
+    },
+    { 
+      id: 'staff', 
+      name: '👥 Staff', 
+      description: 'Employee performance and activities',
+      color: 'bg-orange-500'
+    },
+    { 
+      id: 'inventory', 
+      name: '📦 Inventory', 
+      description: 'Stock levels and wastage tracking',
+      color: 'bg-red-500'
+    },
+    { 
+      id: 'financial', 
+      name: '💳 Financial', 
+      description: 'Tax, profit, and end-of-day reports',
+      color: 'bg-purple-500'
+    }
+  ];
+
+  const dateRangeOptions = [
+    { value: 'today', label: 'Today' },
+    { value: 'yesterday', label: 'Yesterday' },
+    { value: 'week', label: 'This Week' },
+    { value: 'lastWeek', label: 'Last Week' },
+    { value: 'month', label: 'This Month' },
+    { value: 'lastMonth', label: 'Last Month' },
+    { value: 'custom', label: 'Custom Range' }
+  ];
+
+  // Fetch quick stats for overview
   useEffect(() => {
-    fetchReportsData();
-  }, [dateRange]);
+    fetchQuickStats();
+  }, [dateRange, customDateRange]);
 
-  const fetchReportsData = async () => {
+  const fetchQuickStats = useCallback(async () => {
     try {
-      const [dashboardRes, salesRes, productsRes, ordersRes, statsRes] = await Promise.all([
-        axios.get(`/api/reports/dashboard?range=${dateRange}`),
-        axios.get(`/api/reports/sales?range=${dateRange}`),
-        axios.get(`/api/reports/top-products?range=${dateRange}`),
-        axios.get(`/api/orders?status=COMPLETED&limit=10`),
-        axios.get(`/api/reports/order-stats?startDate=${getStartDate()}&endDate=${getEndDate()}`)
-      ]);
-      
-      setDashboardData(dashboardRes.data.data);
-      setSalesData(salesRes.data.data);
-      setTopProducts(productsRes.data.data);
-      setRecentOrders(ordersRes.data.data);
-      setOrderStats(statsRes.data.data);
+      const params = new URLSearchParams();
+      if (dateRange === 'custom') {
+        params.append('startDate', customDateRange.startDate);
+        params.append('endDate', customDateRange.endDate);
+      } else {
+        params.append('range', dateRange);
+      }
+
+      const response = await axios.get(`/api/reports/dashboard?${params}`);
+      setQuickStats(response.data.data);
     } catch (error) {
-      console.error('Failed to fetch reports data:', error);
-      toast.error('Failed to load reports data');
-    } finally {
-      setLoading(false);
+      console.error('Failed to fetch quick stats:', error);
     }
-  };
+  }, [dateRange, customDateRange]);
 
-  const exportReport = async () => {
-    setExporting(true);
-    try {
-      const response = await axios.get(`/api/reports/export?range=${dateRange}`, {
-        responseType: 'blob'
-      });
-      
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `sales-report-${dateRange}-${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      
-      toast.success('Report exported successfully!');
-    } catch (error) {
-      console.error('Failed to export report:', error);
-      toast.error('Failed to export report');
-    } finally {
-      setExporting(false);
+  const handleDateRangeChange = useCallback((value) => {
+    setDateRange(value);
+    if (value !== 'custom') {
+      setCustomDateRange({ startDate: '', endDate: '' });
     }
-  };
+  }, []);
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
-  };
+  const handleCustomDateChange = useCallback((field, value) => {
+    setCustomDateRange(prev => ({ ...prev, [field]: value }));
+  }, []);
 
-  const getDateRangeLabel = (range) => {
-    const labels = {
-      today: 'Today',
-      week: 'This Week',
-      month: 'This Month',
-      year: 'This Year'
-    };
-    return labels[range] || range;
-  };
-
-  const getStartDate = () => {
-    const now = new Date();
-    switch (dateRange) {
-      case 'today':
-        return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-      case 'week':
-        const weekStart = new Date(now);
-        weekStart.setDate(now.getDate() - now.getDay());
-        return new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate()).toISOString();
-      case 'month':
-        return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      case 'year':
-        return new Date(now.getFullYear(), 0, 1).toISOString();
-      default:
-        return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const getDateRangeLabel = useCallback(() => {
+    if (dateRange === 'custom' && customDateRange.startDate && customDateRange.endDate) {
+      return `${customDateRange.startDate} to ${customDateRange.endDate}`;
     }
-  };
+    const option = dateRangeOptions.find(opt => opt.value === dateRange);
+    return option ? option.label : 'Today';
+  }, [dateRange, customDateRange]);
 
-  const getEndDate = () => {
-    const now = new Date();
-    switch (dateRange) {
-      case 'today':
-        return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
-      case 'week':
-        const weekEnd = new Date(now);
-        weekEnd.setDate(now.getDate() - now.getDay() + 6);
-        return new Date(weekEnd.getFullYear(), weekEnd.getMonth(), weekEnd.getDate(), 23, 59, 59).toISOString();
-      case 'month':
-        return new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
-      case 'year':
-        return new Date(now.getFullYear(), 11, 31, 23, 59, 59).toISOString();
-      default:
-        return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
-    }
-  };
+  const reportProps = useMemo(() => ({
+    dateRange,
+    customDateRange
+  }), [dateRange, customDateRange]);
 
-  if (loading) {
-    return <LoadingSpinner />;
-  }
-
-  return (
+  const renderOverview = () => (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Reports & Analytics</h1>
-        <div className="flex space-x-3">
-          <select
-            value={dateRange}
-            onChange={(e) => setDateRange(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+      {/* Quick Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-90">Total Revenue</p>
+              <p className="text-3xl font-bold">
+                ${quickStats.todaySales?.total?.toFixed(2) || '0.00'}
+              </p>
+            </div>
+            <div className="text-4xl">💰</div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-90">Total Orders</p>
+              <p className="text-3xl font-bold">
+                {quickStats.todaySales?.count || 0}
+              </p>
+            </div>
+            <div className="text-4xl">📋</div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-90">Pending Orders</p>
+              <p className="text-3xl font-bold">
+                {quickStats.pendingOrders || 0}
+              </p>
+            </div>
+            <div className="text-4xl">⏳</div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-90">Available Tables</p>
+              <p className="text-3xl font-bold">
+                {quickStats.availableTables || 0}
+              </p>
+            </div>
+            <div className="text-4xl">🪑</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <button 
+            onClick={() => setActiveTab('sales')}
+            className="p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
           >
-            <option value="today">Today</option>
-            <option value="week">This Week</option>
-            <option value="month">This Month</option>
-            <option value="year">This Year</option>
-          </select>
-          <button
-            onClick={exportReport}
-            disabled={exporting}
-            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            <div className="text-2xl mb-2">📊</div>
+            <div className="text-sm font-medium text-blue-900">Sales Report</div>
+          </button>
+          <button 
+            onClick={() => setActiveTab('inventory')}
+            className="p-4 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
           >
-            {exporting ? (
-              <div className="flex items-center">
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                Exporting...
-              </div>
-            ) : (
-              'Export Report'
-            )}
+            <div className="text-2xl mb-2">📦</div>
+            <div className="text-sm font-medium text-red-900">Stock Alert</div>
+          </button>
+          <button 
+            onClick={() => setActiveTab('financial')}
+            className="p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
+          >
+            <div className="text-2xl mb-2">💳</div>
+            <div className="text-sm font-medium text-green-900">End of Day</div>
+          </button>
+          <button 
+            onClick={() => setActiveTab('staff')}
+            className="p-4 bg-orange-50 rounded-lg hover:bg-orange-100 transition-colors"
+          >
+            <div className="text-2xl mb-2">👥</div>
+            <div className="text-sm font-medium text-orange-900">Staff Report</div>
           </button>
         </div>
       </div>
 
-      {/* Date Range Display */}
-      <div className="text-sm text-gray-600">
-        Showing data for: <span className="font-medium">{getDateRangeLabel(dateRange)}</span>
+      {/* Recent Activity */}
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span className="text-sm text-gray-700">New order received - Table 5</span>
+            </div>
+            <span className="text-xs text-gray-500">2 min ago</span>
+          </div>
+          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+              <span className="text-sm text-gray-700">Payment completed - $45.50</span>
+            </div>
+            <span className="text-xs text-gray-500">5 min ago</span>
+          </div>
+          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+              <span className="text-sm text-gray-700">Low stock alert - Coffee beans</span>
+            </div>
+            <span className="text-xs text-gray-500">10 min ago</span>
+          </div>
+        </div>
       </div>
+    </div>
+  );
 
-      {/* Key Metrics */}
-      {dashboardData && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="card p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-3 rounded-lg bg-green-100">
-                <span className="text-2xl">💰</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Total Sales</p>
-                <p className="text-2xl font-semibold text-gray-900">
-                  {formatCurrency(dashboardData.todaySales?.total || 0)}
-                </p>
-                <p className="text-sm text-gray-500">
-                  {dashboardData.todaySales?.count || 0} orders
-                </p>
-              </div>
-            </div>
-          </div>
+  const renderActiveTab = useCallback(() => {
+    switch (activeTab) {
+      case 'overview':
+        return renderOverview();
+      case 'sales':
+        return <SalesReports {...reportProps} />;
+      case 'staff':
+        return <StaffReports {...reportProps} />;
+      case 'inventory':
+        return <InventoryReports {...reportProps} />;
+      case 'financial':
+        return <FinancialReports {...reportProps} />;
+      default:
+        return renderOverview();
+    }
+  }, [activeTab, reportProps]);
 
-          <div className="card p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-3 rounded-lg bg-blue-100">
-                <span className="text-2xl">📊</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Average Order</p>
-                <p className="text-2xl font-semibold text-gray-900">
-                  {formatCurrency(dashboardData.averageOrder || 0)}
-                </p>
-                <p className="text-sm text-gray-500">per order</p>
-              </div>
-            </div>
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
+            <p className="text-gray-600 mt-2">
+              Restaurant performance and business insights
+            </p>
           </div>
-
-          <div className="card p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-3 rounded-lg bg-yellow-100">
-                <span className="text-2xl">⏳</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Pending Orders</p>
-                <p className="text-2xl font-semibold text-gray-900">
-                  {dashboardData.pendingOrders || 0}
-                </p>
-                <p className="text-sm text-gray-500">awaiting payment</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="card p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-3 rounded-lg bg-purple-100">
-                <span className="text-2xl">🪑</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Available Tables</p>
-                <p className="text-2xl font-semibold text-gray-900">
-                  {dashboardData.availableTables || 0}
-                </p>
-                <p className="text-sm text-gray-500">ready for customers</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Order Statistics */}
-      {orderStats && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="card p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-3 rounded-lg bg-indigo-100">
-                <span className="text-2xl">📋</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Total Orders</p>
-                <p className="text-2xl font-semibold text-gray-900">
-                  {orderStats.totalOrders || 0}
-                </p>
-                <p className="text-sm text-gray-500">all time</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="card p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-3 rounded-lg bg-green-100">
-                <span className="text-2xl">✅</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Completed</p>
-                <p className="text-2xl font-semibold text-gray-900">
-                  {orderStats.byStatus?.find(s => s.status === 'COMPLETED')?._count || 0}
-                </p>
-                <p className="text-sm text-gray-500">orders</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="card p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-3 rounded-lg bg-red-100">
-                <span className="text-2xl">❌</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Cancelled</p>
-                <p className="text-2xl font-semibold text-gray-900">
-                  {orderStats.byStatus?.find(s => s.status === 'CANCELLED')?._count || 0}
-                </p>
-                <p className="text-sm text-gray-500">orders</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Sales Chart */}
-        <div className="card">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Sales Overview</h3>
-          </div>
-          <div className="p-6">
-            {salesData.length > 0 ? (
-              <div className="space-y-4">
-                {salesData.map((sale) => (
-                  <div key={sale.date} className="flex justify-between items-center">
-                    <div>
-                      <p className="font-medium text-gray-900">{sale.date}</p>
-                      <p className="text-sm text-gray-500">{sale.orders} orders</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium text-gray-900">{formatCurrency(sale.total)}</p>
-                      <p className="text-sm text-gray-500">{formatCurrency(sale.average)} avg</p>
-                    </div>
-                  </div>
+          
+          {/* Date Range Controls */}
+          <div className="mt-4 lg:mt-0 flex flex-wrap items-center gap-4">
+            <div className="flex items-center space-x-2">
+              <label className="text-sm font-medium text-gray-700">Period:</label>
+              <select
+                value={dateRange}
+                onChange={(e) => handleDateRangeChange(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+              >
+                {dateRangeOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
                 ))}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-gray-500">No sales data available for this period</p>
+              </select>
+            </div>
+
+            {dateRange === 'custom' && (
+              <div className="flex items-center space-x-2">
+                <input
+                  type="date"
+                  value={customDateRange.startDate}
+                  onChange={(e) => handleCustomDateChange('startDate', e.target.value)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+                <span className="text-gray-500">to</span>
+                <input
+                  type="date"
+                  value={customDateRange.endDate}
+                  onChange={(e) => handleCustomDateChange('endDate', e.target.value)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
               </div>
             )}
-          </div>
-        </div>
 
-        {/* Top Products */}
-        <div className="card">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Top Selling Products</h3>
-          </div>
-          <div className="p-6">
-            {topProducts.length > 0 ? (
-              <div className="space-y-4">
-                {topProducts.map((product, index) => (
-                  <div key={product.id} className="flex justify-between items-center">
-                    <div className="flex items-center">
-                      <span className="w-6 h-6 rounded-full bg-primary-100 text-primary-800 text-xs font-medium flex items-center justify-center mr-3">
-                        {index + 1}
-                      </span>
-                      <div>
-                        <p className="font-medium text-gray-900">{product.name}</p>
-                        <p className="text-sm text-gray-500">{product.category}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium text-gray-900">{product.quantity} sold</p>
-                      <p className="text-sm text-gray-500">{formatCurrency(product.revenue)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-gray-500">No product data available for this period</p>
-              </div>
-            )}
+            <div className="text-sm text-gray-600 bg-gray-100 px-3 py-2 rounded-lg">
+              Showing: <span className="font-medium">{getDateRangeLabel()}</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Detailed Sales Table */}
-      <div className="card">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Recent Sales</h3>
+      {/* Tab Navigation */}
+      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div className="border-b border-gray-200">
+          <nav className="flex flex-wrap px-6" aria-label="Tabs">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`py-4 px-6 border-b-2 font-medium text-sm flex items-center space-x-3 transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-blue-500 text-blue-600 bg-blue-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <span className="text-xl">{tab.icon}</span>
+                <div className="text-left">
+                  <div className="font-semibold">{tab.name}</div>
+                  <div className="text-xs opacity-75">{tab.description}</div>
+                </div>
+              </button>
+            ))}
+          </nav>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Order #
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Table
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Items
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Payment
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {recentOrders.length > 0 ? (
-                recentOrders.map((order) => {
-                  const itemCount = order.orderItems?.reduce((sum, item) => sum + item.quantity, 0) || 0;
-                  return (
-                    <tr key={order.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {order.orderNumber}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        Table {order.table?.number || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {itemCount} items
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {formatCurrency(order.total)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          order.paymentMethod === 'CASH' 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-blue-100 text-blue-800'
-                        }`}>
-                          {order.paymentMethod || 'N/A'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(order.createdAt).toLocaleDateString()}
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan="6" className="px-6 py-12 text-center">
-                    <div className="text-gray-500">
-                      <div className="text-lg font-medium mb-2">No recent orders</div>
-                      <div className="text-sm">No completed orders found for this period.</div>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+
+        {/* Tab Content */}
+        <div className="p-6">
+          {loading ? (
+            <div className="flex justify-center items-center py-12">
+              <LoadingSpinner text="Loading reports..." />
+            </div>
+          ) : (
+            renderActiveTab()
+          )}
         </div>
       </div>
     </div>

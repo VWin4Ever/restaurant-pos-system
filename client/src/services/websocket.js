@@ -8,7 +8,7 @@ class WebSocketService {
     this.isConnected = false;
   }
 
-  connect(url = 'ws://localhost:5000') {
+  connect(url = process.env.REACT_APP_WS_URL || 'ws://localhost:5000') {
     try {
       // Close existing connection if any
       if (this.ws) {

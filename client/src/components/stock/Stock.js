@@ -255,51 +255,43 @@ const Stock = () => {
       <div className="card-gradient p-4 sm:p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
         {/* Status Cards Row */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
-          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-2 rounded-lg bg-blue-100">
-                <span className="text-xl">🥤</span>
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Total Drinks</p>
+                <p className="text-3xl font-bold">{stats.total}</p>
               </div>
-              <div className="ml-3">
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.total}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">Total Drinks</div>
-              </div>
+              <div className="text-4xl">🥤</div>
             </div>
           </div>
 
-          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-2 rounded-lg bg-green-100">
-                <span className="text-xl">✅</span>
+          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">In Stock</p>
+                <p className="text-3xl font-bold">{stats.inStock}</p>
               </div>
-              <div className="ml-3">
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.inStock}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">In Stock</div>
-              </div>
+              <div className="text-4xl">✅</div>
             </div>
           </div>
 
-          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-2 rounded-lg bg-yellow-100">
-                <span className="text-xl">⚠️</span>
+          <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Low Stock</p>
+                <p className="text-3xl font-bold">{stats.lowStock}</p>
               </div>
-              <div className="ml-3">
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.lowStock}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">Low Stock</div>
-              </div>
+              <div className="text-4xl">⚠️</div>
             </div>
           </div>
 
-          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border border-white/20 shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 p-2 rounded-lg bg-red-100">
-                <span className="text-xl">🚫</span>
+          <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Out of Stock</p>
+                <p className="text-3xl font-bold">{stats.outOfStock}</p>
               </div>
-              <div className="ml-3">
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.outOfStock}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">Out of Stock</div>
-              </div>
+              <div className="text-4xl">🚫</div>
             </div>
           </div>
         </div>

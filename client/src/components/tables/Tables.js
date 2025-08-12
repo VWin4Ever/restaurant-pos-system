@@ -262,48 +262,40 @@ const Tables = () => {
       <div className="card-gradient p-4 sm:p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
         {/* Status Cards Row */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
-          <div className="card-gradient p-4">
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs sm:text-sm text-gray-600">Total Tables</p>
-                <p className="text-lg sm:text-2xl font-bold text-gray-900">{tables.length}</p>
+                <p className="text-sm opacity-90">Total Tables</p>
+                <p className="text-3xl font-bold">{tables.length}</p>
               </div>
-              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
-                <span className="text-2xl">🪑</span>
-              </div>
+              <div className="text-4xl">🪑</div>
             </div>
           </div>
-          <div className="card-gradient p-4">
+          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs sm:text-sm text-gray-600">Available</p>
-                <p className="text-lg sm:text-2xl font-bold text-success-600">{getStatusCount('AVAILABLE')}</p>
+                <p className="text-sm opacity-90">Available</p>
+                <p className="text-3xl font-bold">{getStatusCount('AVAILABLE')}</p>
               </div>
-              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                <span className="text-2xl">🟢</span>
-              </div>
+              <div className="text-4xl">🟢</div>
             </div>
           </div>
-          <div className="card-gradient p-4">
+          <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs sm:text-sm text-gray-600">Occupied</p>
-                <p className="text-lg sm:text-2xl font-bold text-warning-600">{getStatusCount('OCCUPIED')}</p>
+                <p className="text-sm opacity-90">Occupied</p>
+                <p className="text-3xl font-bold">{getStatusCount('OCCUPIED')}</p>
               </div>
-              <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
-                <span className="text-2xl">🟡</span>
-              </div>
+              <div className="text-4xl">🟡</div>
             </div>
           </div>
-          <div className="card-gradient p-4">
+          <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs sm:text-sm text-gray-600">Reserved</p>
-                <p className="text-lg sm:text-2xl font-bold text-primary-600">{getStatusCount('RESERVED')}</p>
+                <p className="text-sm opacity-90">Reserved</p>
+                <p className="text-3xl font-bold">{getStatusCount('RESERVED')}</p>
               </div>
-              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                <span className="text-2xl">🔵</span>
-              </div>
+              <div className="text-4xl">🔵</div>
             </div>
           </div>
         </div>

@@ -13,6 +13,7 @@ const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
+  const [reportsSubmenuOpen, setReportsSubmenuOpen] = useState(false);
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: 'home' },
@@ -27,11 +28,37 @@ const Layout = () => {
     ...(isAdmin ? [
       { name: 'Stock', href: '/stock', icon: 'stock' },
       { name: 'Users', href: '/users', icon: 'users' },
-      { name: 'Reports', href: '/reports', icon: 'reports' },
+      { 
+        name: 'Reports', 
+        href: '/reports', 
+        icon: 'reports',
+        hasSubmenu: true,
+        submenu: [
+          { name: 'Overview', href: '/reports', icon: 'dashboard' },
+          { name: 'Sales', href: '/reports/sales', icon: 'sales' },
+          { name: 'Staff', href: '/reports/staff', icon: 'users' },
+          { name: 'Inventory', href: '/reports/inventory', icon: 'stock' },
+          { name: 'Financial', href: '/reports/financial', icon: 'financial' },
+        ]
+      },
       { name: 'Settings', href: '/settings', icon: 'settings' },
     ] : []),
     { name: 'Profile', href: '/profile', icon: 'profile' },
   ];
+
+  // Check if current path is in reports section
+  const isInReportsSection = location.pathname.startsWith('/reports');
+  
+  // Handle submenu state based on navigation
+  useEffect(() => {
+    if (isInReportsSection && !reportsSubmenuOpen) {
+      setReportsSubmenuOpen(true);
+    } else if (!isInReportsSection && reportsSubmenuOpen) {
+      setReportsSubmenuOpen(false);
+    }
+  }, [location.pathname, isInReportsSection]);
+
+
 
   const handleLogout = () => {
     logout();
@@ -75,6 +102,184 @@ const Layout = () => {
     }
   };
 
+  const renderNavigationItem = (item, index, isMobile = false) => {
+    const isActive = location.pathname === item.href;
+    const isReportsItem = item.name === 'Reports';
+    const isSubmenuItem = item.hasSubmenu && item.submenu;
+
+    if (isSubmenuItem) {
+      return (
+        <div key={item.name} className="space-y-1">
+          <button
+            onClick={() => setReportsSubmenuOpen(!reportsSubmenuOpen)}
+            className={`group flex items-center w-full px-4 py-3 text-lg font-bold rounded-xl transition-all duration-300 hover:transform hover:scale-105 animate-slide-up
+              ${isInReportsSection ? 'bg-white text-primary-700 border-l-4 border-primary-600 font-bold shadow-soft' : 'text-gray-200 group-hover:text-white group-hover:bg-white/10'}`}
+            style={{ animationDelay: `${index * 50}ms` }}
+          >
+            <div className={`mr-4 ${isInReportsSection ? 'icon-container bg-primary-100 text-primary-700' : 'icon-container bg-white/20 text-gray-200 group-hover:bg-white/30 group-hover:text-white'}`}>
+              <Icon name={item.icon} />
+            </div>
+            <span className="flex-1 text-left">{item.name}</span>
+            <div className={`transform transition-transform duration-200 ${reportsSubmenuOpen ? 'rotate-180' : ''}`}>
+              <Icon name="chevron-down" className="w-4 h-4" />
+            </div>
+          </button>
+          
+          {reportsSubmenuOpen && (
+            <div className="ml-4 space-y-2">
+              {item.submenu.map((subItem, subIndex) => {
+                const isSubActive = location.pathname === subItem.href;
+                const getGradientClass = (subItem) => {
+                  switch (subItem.name) {
+                    case 'Overview': return 'from-blue-500 to-blue-600';
+                    case 'Sales': return 'from-green-500 to-green-600';
+                    case 'Staff': return 'from-purple-500 to-purple-600';
+                    case 'Inventory': return 'from-orange-500 to-orange-600';
+                    case 'Financial': return 'from-red-500 to-red-600';
+                    default: return 'from-gray-500 to-gray-600';
+                  }
+                };
+                return (
+                  <Link
+                    key={subItem.name}
+                    to={subItem.href}
+                    onClick={() => {
+                      if (isMobile) {
+                        setSidebarOpen(false);
+                      }
+                      // Keep submenu open when clicking on submenu items
+                    }}
+                    className={`group flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 hover:transform hover:scale-105 shadow-md
+                      ${isSubActive 
+                        ? `bg-gradient-to-r ${getGradientClass(subItem)} text-white shadow-lg` 
+                        : 'bg-white/10 text-gray-300 group-hover:bg-white/20 group-hover:text-white hover:shadow-lg'
+                      }`}
+                    style={{ animationDelay: `${(index * 50) + (subIndex * 25)}ms` }}
+                  >
+                    <div className={`mr-3 w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 ${
+                      isSubActive 
+                        ? 'bg-white/20 text-white' 
+                        : 'bg-white/10 text-gray-300 group-hover:bg-white/20 group-hover:text-white'
+                    }`}>
+                      <Icon name={subItem.icon} />
+                    </div>
+                    <span className="font-semibold">{subItem.name}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <Link
+        key={item.name}
+        to={item.href}
+        onClick={() => isMobile && setSidebarOpen(false)}
+        className={`group flex items-center px-4 py-3 text-lg font-bold rounded-xl transition-all duration-300 hover:transform hover:scale-105 animate-slide-up
+          ${isActive ? 'bg-white text-primary-700 border-l-4 border-primary-600 font-bold shadow-soft' : 'text-gray-200 group-hover:text-white group-hover:bg-white/10'}`}
+        style={{ animationDelay: `${index * 50}ms` }}
+      >
+        <div className={`mr-4 ${isActive ? 'icon-container bg-primary-100 text-primary-700' : 'icon-container bg-white/20 text-gray-200 group-hover:bg-white/30 group-hover:text-white'}`}>
+          <Icon name={item.icon} />
+        </div>
+        <span>{item.name}</span>
+      </Link>
+    );
+  };
+
+  const renderDesktopNavigationItem = (item, index) => {
+    const isActive = location.pathname === item.href;
+    const isReportsItem = item.name === 'Reports';
+    const isSubmenuItem = item.hasSubmenu && item.submenu;
+
+    if (isSubmenuItem) {
+      return (
+        <div key={item.name} className="space-y-1">
+          <button
+            onClick={() => setReportsSubmenuOpen(!reportsSubmenuOpen)}
+            className={`group flex items-center w-full px-4 py-3 text-base font-bold rounded-xl transition-all duration-300 hover:transform hover:scale-105 animate-slide-up
+              ${isInReportsSection ? 'bg-white text-primary-700 border-l-4 border-primary-600 font-bold shadow-soft' : 'text-gray-200 group-hover:text-white group-hover:bg-white/10'}`}
+            style={{ animationDelay: `${index * 50}ms` }}
+            title={sidebarCollapsed ? item.name : undefined}
+          >
+            <div className={`${sidebarCollapsed ? 'mr-0' : 'mr-3'} ${isInReportsSection ? 'icon-container bg-primary-100 text-primary-700' : 'icon-container bg-white/20 text-gray-200 group-hover:bg-white/30 group-hover:text-white'}`}>
+              <Icon name={item.icon} />
+            </div>
+            {!sidebarCollapsed && (
+              <>
+                <span className="flex-1 text-left">{item.name}</span>
+                <div className={`transform transition-transform duration-200 ${reportsSubmenuOpen ? 'rotate-180' : ''}`}>
+                  <Icon name="chevron-down" className="w-4 h-4" />
+                </div>
+              </>
+            )}
+          </button>
+          
+          {reportsSubmenuOpen && !sidebarCollapsed && (
+            <div className="ml-4 space-y-2">
+              {item.submenu.map((subItem, subIndex) => {
+                const isSubActive = location.pathname === subItem.href;
+                const getGradientClass = (subItem) => {
+                  switch (subItem.name) {
+                    case 'Overview': return 'from-blue-500 to-blue-600';
+                    case 'Sales': return 'from-green-500 to-green-600';
+                    case 'Staff': return 'from-purple-500 to-purple-600';
+                    case 'Inventory': return 'from-orange-500 to-orange-600';
+                    case 'Financial': return 'from-red-500 to-red-600';
+                    default: return 'from-gray-500 to-gray-600';
+                  }
+                };
+                return (
+                  <Link
+                    key={subItem.name}
+                    to={subItem.href}
+                    onClick={() => {
+                      // Keep submenu open when clicking on submenu items
+                    }}
+                    className={`group flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 hover:transform hover:scale-105 shadow-md
+                      ${isSubActive 
+                        ? `bg-gradient-to-r ${getGradientClass(subItem)} text-white shadow-lg` 
+                        : 'bg-white/10 text-gray-300 group-hover:bg-white/20 group-hover:text-white hover:shadow-lg'
+                      }`}
+                    style={{ animationDelay: `${(index * 50) + (subIndex * 25)}ms` }}
+                  >
+                    <div className={`mr-3 w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 ${
+                      isSubActive 
+                        ? 'bg-white/20 text-white' 
+                        : 'bg-white/10 text-gray-300 group-hover:bg-white/20 group-hover:text-white'
+                    }`}>
+                      <Icon name={subItem.icon} />
+                    </div>
+                    <span className="font-semibold">{subItem.name}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <Link
+        key={item.name}
+        to={item.href}
+        className={`group flex items-center px-4 py-3 text-base font-bold rounded-xl transition-all duration-300 hover:transform hover:scale-105 animate-slide-up
+          ${isActive ? 'bg-white text-primary-700 border-l-4 border-primary-600 font-bold shadow-soft' : 'text-gray-200 group-hover:text-white group-hover:bg-white/10'}`}
+        style={{ animationDelay: `${index * 50}ms` }}
+        title={sidebarCollapsed ? item.name : undefined}
+      >
+        <div className={`${sidebarCollapsed ? 'mr-0' : 'mr-3'} ${isActive ? 'icon-container bg-primary-100 text-primary-700' : 'icon-container bg-white/20 text-gray-200 group-hover:bg-white/30 group-hover:text-white'}`}>
+          <Icon name={item.icon} />
+        </div>
+        {!sidebarCollapsed && <span>{item.name}</span>}
+      </Link>
+    );
+  };
+
   return (
     <div className="h-screen flex overflow-hidden bg-gray-200">
       {/* Mobile sidebar */}
@@ -92,35 +297,18 @@ const Layout = () => {
           </div>
           <div className="flex-1 h-0 pt-2 pb-4 overflow-y-auto custom-scrollbar">
             <div className="flex-shrink-0 flex flex-col items-center px-4">
-                              <img
-                  src={logo}
-                  alt={`${getRestaurantName()} Logo`}
-                  className="h-16 w-auto mb-1 rounded-xl shadow-soft"
-                  style={{ background: 'white' }}
-                />
+              <img
+                src={logo}
+                alt={`${getRestaurantName()} Logo`}
+                className="h-16 w-auto mb-1 rounded-xl shadow-soft"
+                style={{ background: 'white' }}
+              />
               <h1 className="text-lg font-bold text-center">
                 <span className="text-white">{getRestaurantName()}</span>
               </h1>
             </div>
             <nav className="px-2 space-y-2">
-              {navigation.map((item, index) => {
-                const isActive = location.pathname === item.href;
-                return (
-                  <Link
-                    key={item.name}
-                    to={item.href}
-                    onClick={() => setSidebarOpen(false)}
-                    className={`group flex items-center px-4 py-3 text-lg font-bold rounded-xl transition-all duration-300 hover:transform hover:scale-105 animate-slide-up
-                      ${isActive ? 'bg-white text-primary-700 border-l-4 border-primary-600 font-bold shadow-soft' : 'text-gray-200 group-hover:text-white group-hover:bg-white/10'}`}
-                    style={{ animationDelay: `${index * 50}ms` }}
-                  >
-                    <div className={`mr-4 ${isActive ? 'icon-container bg-primary-100 text-primary-700' : 'icon-container bg-white/20 text-gray-200 group-hover:bg-white/30 group-hover:text-white'}`}>
-                      <Icon name={item.icon} />
-                    </div>
-                    <span>{item.name}</span>
-                  </Link>
-                );
-              })}
+              {navigation.map((item, index) => renderNavigationItem(item, index, true))}
             </nav>
           </div>
         </div>
@@ -145,24 +333,7 @@ const Layout = () => {
                 )}
               </div>
               <nav className="flex-1 px-2 space-y-2">
-                {navigation.map((item, index) => {
-                  const isActive = location.pathname === item.href;
-                  return (
-                    <Link
-                      key={item.name}
-                      to={item.href}
-                      className={`group flex items-center px-4 py-3 text-base font-bold rounded-xl transition-all duration-300 hover:transform hover:scale-105 animate-slide-up
-                        ${isActive ? 'bg-white text-primary-700 border-l-4 border-primary-600 font-bold shadow-soft' : 'text-gray-200 group-hover:text-white group-hover:bg-white/10'}`}
-                      style={{ animationDelay: `${index * 50}ms` }}
-                      title={sidebarCollapsed ? item.name : undefined}
-                    >
-                      <div className={`${sidebarCollapsed ? 'mr-0' : 'mr-3'} ${isActive ? 'icon-container bg-primary-100 text-primary-700' : 'icon-container bg-white/20 text-gray-200 group-hover:bg-white/30 group-hover:text-white'}`}>
-                        <Icon name={item.icon} />
-                      </div>
-                      {!sidebarCollapsed && <span>{item.name}</span>}
-                    </Link>
-                  );
-                })}
+                {navigation.map((item, index) => renderDesktopNavigationItem(item, index))}
               </nav>
             </div>
           </div>
@@ -200,31 +371,33 @@ const Layout = () => {
                 </div>
               </div>
             </div>
-            <div className="ml-4 flex items-center md:ml-6">
-              <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4">
-                {/* User Avatar/Initials */}
-                <div className="w-10 h-10 rounded-full bg-gradient-to-r from-primary-600 to-primary-700 text-white flex items-center justify-center font-bold text-lg shadow-soft">
-                  {user?.name ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2) : <Icon name="user" />}
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center">
+                  <span className="text-sm font-bold text-primary-700">
+                    {user?.name?.charAt(0)?.toUpperCase() || 'U'}
+                  </span>
                 </div>
-                <div className="text-sm text-text-secondary bg-white/60 backdrop-blur-sm px-4 py-2 rounded-xl border border-neutral-200 text-center">
-                  Welcome, <span className="font-semibold text-primary-600">{user?.name}</span>
+                <div className="hidden sm:block">
+                  <div className="text-sm font-medium text-text-primary">{user?.name}</div>
+                  <div className="text-xs text-text-secondary">{user?.role}</div>
                 </div>
-                <button
-                  onClick={handleLogout}
-                  className="btn-secondary text-sm"
-                >
-                  <Icon name="close" size="sm" className="mr-2" />
-                  Logout
-                </button>
               </div>
+              <button
+                onClick={handleLogout}
+                className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-white/60 backdrop-blur-sm rounded-lg border border-transparent hover:border-neutral-200 transition-all duration-200"
+              >
+                <Icon name="logout" />
+                <span className="hidden sm:inline">Logout</span>
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Page content */}
-        <main className="flex-1 relative overflow-y-auto focus:outline-none custom-scrollbar">
-          <div className="py-4 sm:py-6">
-            <div className="container-responsive">
+        {/* Main content area */}
+        <main className="flex-1 relative overflow-y-auto focus:outline-none">
+          <div className="py-6">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
               <Outlet />
             </div>
           </div>

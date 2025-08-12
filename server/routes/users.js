@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
-const { requirePermission } = require('../middleware/permissions');
+const { requirePermission, getUserPermissions, getAvailablePermissions } = require('../middleware/permissions');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -58,7 +58,12 @@ router.get('/', requirePermission('users.view'), async (req, res) => {
         role: true,
         isActive: true,
         createdAt: true,
-        updatedAt: true
+        updatedAt: true,
+        permissions: {
+          select: {
+            permission: true
+          }
+        }
       },
       orderBy: {
         createdAt: 'desc'
@@ -67,11 +72,22 @@ router.get('/', requirePermission('users.view'), async (req, res) => {
       take: limitNum
     });
 
+    // Get permissions for each user
+    const usersWithPermissions = await Promise.all(
+      users.map(async (user) => {
+        const permissions = await getUserPermissions(user.id, user.role);
+        return {
+          ...user,
+          permissions: permissions
+        };
+      })
+    );
+
     const pages = Math.ceil(total / limitNum);
 
     res.json({
       success: true,
-      data: users,
+      data: usersWithPermissions,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -101,7 +117,12 @@ router.get('/:id', requirePermission('users.view'), async (req, res) => {
         role: true,
         isActive: true,
         createdAt: true,
-        updatedAt: true
+        updatedAt: true,
+        permissions: {
+          select: {
+            permission: true
+          }
+        }
       }
     });
 
@@ -112,9 +133,15 @@ router.get('/:id', requirePermission('users.view'), async (req, res) => {
       });
     }
 
+    // Get full permissions list
+    const permissions = await getUserPermissions(user.id, user.role);
+
     res.json({
       success: true,
-      data: user
+      data: {
+        ...user,
+        permissions: permissions
+      }
     });
   } catch (error) {
     console.error('Get user error:', error);
@@ -125,13 +152,31 @@ router.get('/:id', requirePermission('users.view'), async (req, res) => {
   }
 });
 
+// Get available permissions
+router.get('/permissions/available', requirePermission('users.update'), async (req, res) => {
+  try {
+    const permissions = getAvailablePermissions();
+    res.json({
+      success: true,
+      data: permissions
+    });
+  } catch (error) {
+    console.error('Get available permissions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get available permissions'
+    });
+  }
+});
+
 // Create new user
 router.post('/', requirePermission('users.create'), [
   body('username').notEmpty().withMessage('Username is required'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
   body('name').notEmpty().withMessage('Name is required'),
-  body('email').isEmail().withMessage('Valid email is required'),
-  body('role').isIn(['ADMIN', 'CASHIER']).withMessage('Invalid role')
+  body('email').optional().isEmail().withMessage('Valid email is required'),
+  body('role').isIn(['ADMIN', 'CASHIER']).withMessage('Invalid role'),
+  body('permissions').optional().isArray().withMessage('Permissions must be an array')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -143,7 +188,7 @@ router.post('/', requirePermission('users.create'), [
       });
     }
 
-    const { username, password, name, email, role } = req.body;
+    const { username, password, name, email, role, permissions = [] } = req.body;
 
     // Check if username already exists
     const existingUser = await prisma.user.findUnique({
@@ -160,14 +205,19 @@ router.post('/', requirePermission('users.create'), [
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create user
+    // Create user with permissions
     const user = await prisma.user.create({
       data: {
         username,
         password: hashedPassword,
         name,
         email,
-        role
+        role,
+        permissions: {
+          create: permissions.map(permission => ({
+            permission: permission
+          }))
+        }
       },
       select: {
         id: true,
@@ -176,7 +226,12 @@ router.post('/', requirePermission('users.create'), [
         email: true,
         role: true,
         isActive: true,
-        createdAt: true
+        createdAt: true,
+        permissions: {
+          select: {
+            permission: true
+          }
+        }
       }
     });
 
@@ -197,8 +252,9 @@ router.post('/', requirePermission('users.create'), [
 // Update user
 router.put('/:id', requirePermission('users.update'), [
   body('name').notEmpty().withMessage('Name is required'),
-  body('email').isEmail().withMessage('Valid email is required'),
-  body('role').isIn(['ADMIN', 'CASHIER']).withMessage('Invalid role')
+  body('email').optional().isEmail().withMessage('Valid email is required'),
+  body('role').isIn(['ADMIN', 'CASHIER']).withMessage('Invalid role'),
+  body('permissions').optional().isArray().withMessage('Permissions must be an array')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -210,7 +266,7 @@ router.put('/:id', requirePermission('users.update'), [
       });
     }
 
-    const { name, email, role, password } = req.body;
+    const { name, email, role, password, permissions } = req.body;
     const userId = parseInt(req.params.id);
 
     // Check if user exists
@@ -237,31 +293,114 @@ router.put('/:id', requirePermission('users.update'), [
       updateData.password = await bcrypt.hash(password, 12);
     }
 
-    // Update user
-    const user = await prisma.user.update({
-      where: { id: userId },
-      data: updateData,
-      select: {
-        id: true,
-        username: true,
-        name: true,
-        email: true,
-        role: true,
-        isActive: true,
-        updatedAt: true
+    // Update user and permissions in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Update user
+      const user = await tx.user.update({
+        where: { id: userId },
+        data: updateData,
+        select: {
+          id: true,
+          username: true,
+          name: true,
+          email: true,
+          role: true,
+          isActive: true,
+          updatedAt: true
+        }
+      });
+
+      // Update permissions if provided
+      if (permissions !== undefined) {
+        // Delete existing permissions
+        await tx.userPermission.deleteMany({
+          where: { userId }
+        });
+
+        // Create new permissions
+        if (permissions.length > 0) {
+          await tx.userPermission.createMany({
+            data: permissions.map(permission => ({
+              userId,
+              permission
+            }))
+          });
+        }
       }
+
+      return user;
     });
 
     res.json({
       success: true,
       message: 'User updated successfully',
-      data: user
+      data: result
     });
   } catch (error) {
     console.error('Update user error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to update user'
+    });
+  }
+});
+
+// Update user permissions
+router.patch('/:id/permissions', requirePermission('users.update'), [
+  body('permissions').isArray().withMessage('Permissions must be an array')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: errors.array()
+      });
+    }
+
+    const { permissions } = req.body;
+    const userId = parseInt(req.params.id);
+
+    // Check if user exists
+    const existingUser = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!existingUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Update permissions in a transaction
+    await prisma.$transaction(async (tx) => {
+      // Delete existing permissions
+      await tx.userPermission.deleteMany({
+        where: { userId }
+      });
+
+      // Create new permissions
+      if (permissions.length > 0) {
+        await tx.userPermission.createMany({
+          data: permissions.map(permission => ({
+            userId,
+            permission
+          }))
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'User permissions updated successfully'
+    });
+  } catch (error) {
+    console.error('Update user permissions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user permissions'
     });
   }
 });
@@ -339,7 +478,7 @@ router.delete('/:id', requirePermission('users.delete'), async (req, res) => {
       });
     }
 
-    // Delete user
+    // Delete user (permissions will be deleted automatically due to cascade)
     await prisma.user.delete({
       where: { id: userId }
     });

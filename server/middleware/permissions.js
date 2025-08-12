@@ -1,4 +1,7 @@
-// Simple role-based permissions middleware
+// Enhanced role-based permissions middleware with custom user permissions
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+
 const ROLE_PERMISSIONS = {
   ADMIN: [
     'orders.*',
@@ -19,12 +22,19 @@ const ROLE_PERMISSIONS = {
     'tables.read',
     'tables.update',
     'stock.read',
-    'stock.update'
+    'stock.update',
+    'reports.view'
   ]
 };
 
-// Check if user has permission
-const hasPermission = (userRole, permission) => {
+// Check if user has permission (including custom permissions)
+const hasPermission = async (userId, userRole, permission) => {
+  // Admin has all permissions
+  if (userRole === 'ADMIN') {
+    return true;
+  }
+
+  // Check role-based permissions
   const userPermissions = ROLE_PERMISSIONS[userRole] || [];
   
   // Check exact permission
@@ -36,12 +46,78 @@ const hasPermission = (userRole, permission) => {
   const [module, action] = permission.split('.');
   const wildcardPermission = `${module}.*`;
   
-  return userPermissions.includes(wildcardPermission);
+  if (userPermissions.includes(wildcardPermission)) {
+    return true;
+  }
+
+  // Check custom user permissions from database
+  try {
+    const customPermission = await prisma.userPermission.findUnique({
+      where: {
+        userId_permission: {
+          userId: userId,
+          permission: permission
+        }
+      }
+    });
+
+    if (customPermission) {
+      return true;
+    }
+
+    // Check wildcard custom permissions
+    const wildcardCustomPermission = await prisma.userPermission.findFirst({
+      where: {
+        userId: userId,
+        permission: wildcardPermission
+      }
+    });
+
+    return !!wildcardCustomPermission;
+  } catch (error) {
+    console.error('Error checking custom permissions:', error);
+    return false;
+  }
+};
+
+// Synchronous version for middleware (uses cached permissions)
+const hasPermissionSync = (userRole, permission, customPermissions = []) => {
+  // Admin has all permissions
+  if (userRole === 'ADMIN') {
+    return true;
+  }
+
+  // Check role-based permissions
+  const userPermissions = ROLE_PERMISSIONS[userRole] || [];
+  
+  // Check exact permission
+  if (userPermissions.includes(permission)) {
+    return true;
+  }
+  
+  // Check wildcard permissions
+  const [module, action] = permission.split('.');
+  const wildcardPermission = `${module}.*`;
+  
+  if (userPermissions.includes(wildcardPermission)) {
+    return true;
+  }
+
+  // Check custom permissions
+  if (customPermissions.includes(permission)) {
+    return true;
+  }
+
+  if (customPermissions.includes(wildcardPermission)) {
+    return true;
+  }
+
+  return false;
 };
 
 // Middleware to require specific permission
 const requirePermission = (permission) => {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -49,7 +125,9 @@ const requirePermission = (permission) => {
       });
     }
 
-    if (!hasPermission(req.user.role, permission)) {
+    const hasAccess = await hasPermission(req.user.id, req.user.role, permission);
+    
+    if (!hasAccess) {
       return res.status(403).json({
         success: false,
         message: `Insufficient permissions. Required: ${permission}`
@@ -62,7 +140,7 @@ const requirePermission = (permission) => {
 
 // Middleware to require any of multiple permissions
 const requireAnyPermission = (permissions) => {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -70,24 +148,23 @@ const requireAnyPermission = (permissions) => {
       });
     }
 
-    const hasAnyPermission = permissions.some(permission => 
-      hasPermission(req.user.role, permission)
-    );
-
-    if (!hasAnyPermission) {
-      return res.status(403).json({
-        success: false,
-        message: `Insufficient permissions. Required one of: ${permissions.join(', ')}`
-      });
+    for (const permission of permissions) {
+      const hasAccess = await hasPermission(req.user.id, req.user.role, permission);
+      if (hasAccess) {
+        return next();
+      }
     }
 
-    next();
+    return res.status(403).json({
+      success: false,
+      message: `Insufficient permissions. Required one of: ${permissions.join(', ')}`
+    });
   };
 };
 
 // Middleware to require all permissions
 const requireAllPermissions = (permissions) => {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -95,38 +172,109 @@ const requireAllPermissions = (permissions) => {
       });
     }
 
-    const hasAllPermissions = permissions.every(permission => 
-      hasPermission(req.user.role, permission)
-    );
-
-    if (!hasAllPermissions) {
-      return res.status(403).json({
-        success: false,
-        message: `Insufficient permissions. Required all: ${permissions.join(', ')}`
-      });
+    for (const permission of permissions) {
+      const hasAccess = await hasPermission(req.user.id, req.user.role, permission);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: `Insufficient permissions. Required: ${permission}`
+        });
+      }
     }
 
     next();
   };
 };
 
-// Get user permissions
-const getUserPermissions = (userRole) => {
-  return ROLE_PERMISSIONS[userRole] || [];
+// Get user permissions (role-based + custom)
+const getUserPermissions = async (userId, userRole) => {
+  const rolePermissions = ROLE_PERMISSIONS[userRole] || [];
+  
+  try {
+    const customPermissions = await prisma.userPermission.findMany({
+      where: { userId },
+      select: { permission: true }
+    });
+
+    const customPermissionStrings = customPermissions.map(p => p.permission);
+    
+    return [...new Set([...rolePermissions, ...customPermissionStrings])];
+  } catch (error) {
+    console.error('Error getting user permissions:', error);
+    return rolePermissions;
+  }
+};
+
+// Get available permissions for assignment
+const getAvailablePermissions = () => {
+  return [
+    // Orders
+    'orders.create',
+    'orders.read',
+    'orders.update',
+    'orders.delete',
+    'orders.*',
+    
+    // Products
+    'products.create',
+    'products.read',
+    'products.update',
+    'products.delete',
+    'products.*',
+    
+    // Categories
+    'categories.create',
+    'categories.read',
+    'categories.update',
+    'categories.delete',
+    'categories.*',
+    
+    // Tables
+    'tables.create',
+    'tables.read',
+    'tables.update',
+    'tables.delete',
+    'tables.*',
+    
+    // Stock
+    'stock.create',
+    'stock.read',
+    'stock.update',
+    'stock.delete',
+    'stock.*',
+    
+    // Reports
+    'reports.read',
+    'reports.*',
+    
+    // Settings
+    'settings.read',
+    'settings.update',
+    'settings.*',
+    
+    // Users (limited for cashiers)
+    'users.read',
+    'users.create',
+    'users.update',
+    'users.delete',
+    'users.*'
+  ];
 };
 
 // Check if user can perform action
-const canPerformAction = (userRole, action, resource) => {
+const canPerformAction = async (userId, userRole, action, resource) => {
   const permission = `${resource}.${action}`;
-  return hasPermission(userRole, permission);
+  return await hasPermission(userId, userRole, permission);
 };
 
 module.exports = {
   hasPermission,
+  hasPermissionSync,
   requirePermission,
   requireAnyPermission,
   requireAllPermissions,
   getUserPermissions,
+  getAvailablePermissions,
   canPerformAction,
   ROLE_PERMISSIONS
 }; 

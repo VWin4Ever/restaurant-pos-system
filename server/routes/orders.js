@@ -176,15 +176,10 @@ router.post('/', [
   body('discount').optional().isFloat({ min: 0 })
 ], async (req, res) => {
   try {
-    console.log('Order creation request:', {
-      body: req.body,
-      user: req.user,
-      headers: req.headers
-    });
+
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.log('Validation errors:', errors.array());
       return res.status(400).json({
         success: false,
         message: 'Validation error',

@@ -24,8 +24,22 @@ model User {
   // Relations
   orders    Order[]
   stockLogs StockLog[]
+  permissions UserPermission[]
 
   @@map("users")
+}
+
+model UserPermission {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  permission String  // e.g., 'orders.create', 'products.view', etc.
+  createdAt DateTime @default(now())
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permission])
+  @@map("user_permissions")
 }
 
 model Table {

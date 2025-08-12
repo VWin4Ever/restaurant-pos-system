@@ -23,9 +23,5 @@
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2"
-  },
-  "dependencies": {
-    "react-dnd": "^16.0.1",
-    "react-dnd-html5-backend": "^16.0.1"
   }
 }

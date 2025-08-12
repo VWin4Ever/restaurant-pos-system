@@ -21,11 +21,13 @@ const Users = () => {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [confirmDialog, setConfirmDialog] = useState({ open: false });
   const [isMobile, setIsMobile] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [availablePermissions, setAvailablePermissions] = useState([]);
   
   // Filter states
   const [filters, setFilters] = useState({
@@ -48,7 +50,13 @@ const Users = () => {
     password: '',
     name: '',
     email: '',
-    role: 'CASHIER'
+    role: 'CASHIER',
+    permissions: []
+  });
+
+  // Permissions form state
+  const [permissionsForm, setPermissionsForm] = useState({
+    permissions: []
   });
 
   // Check mobile viewport
@@ -61,6 +69,7 @@ const Users = () => {
 
   useEffect(() => {
     fetchUsers();
+    fetchAvailablePermissions();
   }, [filters, pagination.page]);
 
   const fetchUsers = async () => {
@@ -95,6 +104,15 @@ const Users = () => {
       toast.error('Failed to fetch users');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAvailablePermissions = async () => {
+    try {
+      const response = await axios.get('/api/users/permissions/available');
+      setAvailablePermissions(response.data.data);
+    } catch (error) {
+      console.error('Error fetching available permissions:', error);
     }
   };
 
@@ -149,12 +167,39 @@ const Users = () => {
       password: '',
       name: user.name,
       email: user.email || '',
-      role: user.role
+      role: user.role,
+      permissions: user.permissions || []
     });
     setShowModal(true);
   };
 
+  const handleEditPermissions = (user) => {
+    setEditingUser(user);
+    setPermissionsForm({
+      permissions: user.permissions || []
+    });
+    setShowPermissionsModal(true);
+  };
 
+  const handlePermissionsSubmit = async (e) => {
+    e.preventDefault();
+    
+    setActionLoading(true);
+    
+    try {
+      await axios.patch(`/api/users/${editingUser.id}/permissions`, permissionsForm);
+      toast.success('User permissions updated successfully');
+      setShowPermissionsModal(false);
+      setEditingUser(null);
+      setPermissionsForm({ permissions: [] });
+      fetchUsers();
+    } catch (error) {
+      console.error('Error updating permissions:', error);
+      toast.error(error.response?.data?.message || 'Failed to update permissions');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const handleDelete = async (userId) => {
     try {
@@ -253,7 +298,8 @@ const Users = () => {
       password: '',
       name: '',
       email: '',
-      role: 'CASHIER'
+      role: 'CASHIER',
+      permissions: []
     });
   };
 
@@ -271,6 +317,24 @@ const Users = () => {
     } else {
       setSelectedUsers(users.map(user => user.id));
     }
+  };
+
+  const handlePermissionChange = (permission, checked) => {
+    setFormData(prev => ({
+      ...prev,
+      permissions: checked 
+        ? [...prev.permissions, permission]
+        : prev.permissions.filter(p => p !== permission)
+    }));
+  };
+
+  const handlePermissionsFormChange = (permission, checked) => {
+    setPermissionsForm(prev => ({
+      ...prev,
+      permissions: checked 
+        ? [...prev.permissions, permission]
+        : prev.permissions.filter(p => p !== permission)
+    }));
   };
 
   const getRoleBadge = (role) => {
@@ -316,6 +380,16 @@ const Users = () => {
     </button>
   );
 
+  // Group permissions by module
+  const groupedPermissions = availablePermissions.reduce((acc, permission) => {
+    const [module] = permission.split('.');
+    if (!acc[module]) {
+      acc[module] = [];
+    }
+    acc[module].push(permission);
+    return acc;
+  }, {});
+
   // Calculate statistics
   const stats = {
     total: users.length,
@@ -339,53 +413,53 @@ const Users = () => {
           {/* Status Cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
             {/* Total Users */}
-            <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
-              <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-blue-200 mr-3 sm:mr-6">
-                <Icon name="people" className="text-blue-600" size="lg" />
-              </span>
-              <div>
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.total}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">Total Users</div>
+            <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm opacity-90">Total Users</p>
+                  <p className="text-3xl font-bold">{stats.total}</p>
+                </div>
+                <div className="text-4xl">👥</div>
               </div>
             </div>
             {/* Active */}
-            <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
-              <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-green-200 mr-3 sm:mr-6">
-                <Icon name="check" className="text-green-600" size="lg" />
-              </span>
-              <div>
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.active}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">Active</div>
+            <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm opacity-90">Active</p>
+                  <p className="text-3xl font-bold">{stats.active}</p>
+                </div>
+                <div className="text-4xl">✅</div>
               </div>
             </div>
             {/* Inactive */}
-            <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
-              <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-red-200 mr-3 sm:mr-6">
-                <Icon name="error" className="text-red-600" size="lg" />
-              </span>
-              <div>
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.inactive}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">Inactive</div>
+            <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-xl shadow-lg text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm opacity-90">Inactive</p>
+                  <p className="text-3xl font-bold">{stats.inactive}</p>
+                </div>
+                <div className="text-4xl">❌</div>
               </div>
             </div>
             {/* Admins */}
-            <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
-              <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-purple-200 mr-3 sm:mr-6">
-                <Icon name="admin" className="text-purple-600" size="lg" />
-              </span>
-              <div>
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.admins}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">Admins</div>
+            <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm opacity-90">Admins</p>
+                  <p className="text-3xl font-bold">{stats.admins}</p>
+                </div>
+                <div className="text-4xl">👑</div>
               </div>
             </div>
             {/* Cashiers */}
-            <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
-              <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-orange-200 mr-3 sm:mr-6">
-                <Icon name="cashier" className="text-orange-600" size="lg" />
-              </span>
-          <div>
-                <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.cashiers}</div>
-                <div className="text-sm sm:text-base text-gray-500 mt-1">Cashiers</div>
+            <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm opacity-90">Cashiers</p>
+                  <p className="text-3xl font-bold">{stats.cashiers}</p>
+                </div>
+                <div className="text-4xl">💼</div>
               </div>
             </div>
           </div>
@@ -567,6 +641,11 @@ const Users = () => {
                         {user.email && (
                           <div className="text-sm text-gray-500">{user.email}</div>
                         )}
+                        {user.permissions && user.permissions.length > 0 && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            {user.permissions.length} custom permission{user.permissions.length !== 1 ? 's' : ''}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -587,6 +666,14 @@ const Users = () => {
                             className="text-primary-600 hover:text-primary-900"
                       >
                             Edit
+                      </button>
+                        )}
+                        {hasPermission('users.update') && user.role === 'CASHIER' && (
+                      <button
+                        onClick={() => handleEditPermissions(user)}
+                            className="text-purple-600 hover:text-purple-900"
+                      >
+                            Permissions
                       </button>
                         )}
                         {hasPermission('users.update') && (
@@ -652,7 +739,7 @@ const Users = () => {
       {/* Add/Edit User Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b border-neutral-200">
               <h2 className="text-xl font-bold text-neutral-900">
                 {editingUser ? 'Edit User' : 'Add New User'}
@@ -660,73 +747,102 @@ const Users = () => {
             </div>
             
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                  Username *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.username}
-                  onChange={(e) => setFormData({...formData, username: e.target.value})}
-                  className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
-                  disabled={!!editingUser}
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                    Username *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.username}
+                    onChange={(e) => setFormData({...formData, username: e.target.value})}
+                    className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+                    disabled={!!editingUser}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                    {editingUser ? 'New Password (leave blank to keep current)' : 'Password *'}
+                  </label>
+                  <input
+                    type="password"
+                    required={!editingUser}
+                    value={formData.password}
+                    onChange={(e) => setFormData({...formData, password: e.target.value})}
+                    className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                    Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.name}
+                    onChange={(e) => setFormData({...formData, name: e.target.value})}
+                    className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({...formData, email: e.target.value})}
+                    className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+                    placeholder="user@example.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                    Role *
+                  </label>
+                  <select
+                    required
+                    value={formData.role}
+                    onChange={(e) => setFormData({...formData, role: e.target.value})}
+                    className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+                  >
+                    <option value="CASHIER">Cashier</option>
+                    <option value="ADMIN">Admin</option>
+                  </select>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                  {editingUser ? 'New Password (leave blank to keep current)' : 'Password *'}
-                </label>
-                <input
-                  type="password"
-                  required={!editingUser}
-                  value={formData.password}
-                  onChange={(e) => setFormData({...formData, password: e.target.value})}
-                  className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                  Full Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({...formData, email: e.target.value})}
-                  className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
-                  placeholder="user@example.com"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                  Role *
-                </label>
-                <select
-                  required
-                  value={formData.role}
-                  onChange={(e) => setFormData({...formData, role: e.target.value})}
-                  className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
-                >
-                  <option value="CASHIER">Cashier</option>
-                  <option value="ADMIN">Admin</option>
-                </select>
-              </div>
+              {/* Permissions Section - Only show for Cashiers */}
+              {formData.role === 'CASHIER' && (
+                <div className="border-t border-neutral-200 pt-4">
+                  <h3 className="text-lg font-semibold text-neutral-900 mb-4">Custom Permissions</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-60 overflow-y-auto">
+                    {Object.entries(groupedPermissions).map(([module, permissions]) => (
+                      <div key={module} className="space-y-2">
+                        <h4 className="font-medium text-neutral-700 capitalize">{module}</h4>
+                        {permissions.map(permission => (
+                          <label key={permission} className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              checked={formData.permissions.includes(permission)}
+                              onChange={(e) => handlePermissionChange(permission, e.target.checked)}
+                              className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500 focus:ring-2"
+                            />
+                            <span className="text-sm text-neutral-600">
+                              {permission.split('.')[1]}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center justify-end space-x-3 pt-4">
                 <button
@@ -752,6 +868,74 @@ const Users = () => {
                     </div>
                   ) : (
                     editingUser ? 'Update User' : 'Create User'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Permissions Modal */}
+      {showPermissionsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b border-neutral-200">
+              <h2 className="text-xl font-bold text-neutral-900">
+                Manage Permissions - {editingUser?.name}
+              </h2>
+            </div>
+            
+            <form onSubmit={handlePermissionsSubmit} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {Object.entries(groupedPermissions).map(([module, permissions]) => (
+                  <div key={module} className="space-y-3">
+                    <h3 className="font-semibold text-neutral-900 capitalize border-b border-neutral-200 pb-2">
+                      {module}
+                    </h3>
+                    <div className="space-y-2">
+                      {permissions.map(permission => (
+                        <label key={permission} className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={permissionsForm.permissions.includes(permission)}
+                            onChange={(e) => handlePermissionsFormChange(permission, e.target.checked)}
+                            className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500 focus:ring-2"
+                          />
+                          <span className="text-sm text-neutral-600">
+                            {permission.split('.')[1]}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 pt-4 border-t border-neutral-200">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPermissionsModal(false);
+                    setEditingUser(null);
+                    setPermissionsForm({ permissions: [] });
+                  }}
+                  className="btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="btn-primary"
+                >
+                  {actionLoading ? (
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>Updating...</span>
+                    </div>
+                  ) : (
+                    'Update Permissions'
                   )}
                 </button>
               </div>

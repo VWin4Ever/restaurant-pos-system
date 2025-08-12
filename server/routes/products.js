@@ -43,11 +43,6 @@ const upload = multer({
   }
 });
 
-// Test route
-router.get('/test', (req, res) => {
-  res.json({ message: 'Products route is working!' });
-});
-
 // Get all products with advanced filtering and sorting
 router.get('/', requirePermission('products.view'), async (req, res) => {
   try {
@@ -167,8 +162,7 @@ router.get('/:id', requirePermission('products.view'), async (req, res) => {
 // Create new product
 router.post('/', requirePermission('products.create'), upload.single('image'), async (req, res) => {
   try {
-    console.log('Received product data:', req.body);
-    console.log('Received file:', req.file);
+
 
     const { name, price, categoryId, isDrink, description } = req.body;
     let imageUrl = null;
@@ -187,11 +181,9 @@ router.post('/', requirePermission('products.create'), upload.single('image'), a
     }
 
     // Check if category exists
-    console.log('Looking for category with ID:', parseInt(categoryId));
     const category = await prisma.category.findUnique({
       where: { id: parseInt(categoryId) }
     });
-    console.log('Found category:', category);
 
     if (!category) {
       return res.status(400).json({
@@ -221,7 +213,7 @@ router.post('/', requirePermission('products.create'), upload.single('image'), a
       }
     });
     
-    console.log('Product created successfully:', product);
+
 
     // Get product with relations
     const productWithRelations = await prisma.product.findUnique({
@@ -390,15 +382,11 @@ router.delete('/:id', requirePermission('products.delete'), async (req, res) => 
     });
 
     if (!product) {
-      console.log('Product not found with ID:', productId);
       return res.status(404).json({
         success: false,
         message: 'Product not found'
       });
     }
-
-    console.log('Found product to delete:', product.name);
-    console.log('Product has', product.orderItems.length, 'order items');
 
     // Check if product has orders
     if (product.orderItems.length > 0) {
@@ -413,7 +401,7 @@ router.delete('/:id', requirePermission('products.delete'), async (req, res) => 
       where: { id: productId }
     });
 
-    console.log('Product deleted successfully:', productId);
+
 
     res.json({
       success: true,

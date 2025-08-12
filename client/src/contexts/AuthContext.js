@@ -16,6 +16,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(localStorage.getItem('token'));
+  const [userPermissions, setUserPermissions] = useState([]);
 
   // Set up axios defaults
   useEffect(() => {
@@ -34,7 +35,19 @@ export const AuthProvider = ({ children }) => {
           // Set authorization header
           axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
           const response = await axios.get('/api/auth/profile');
-          setUser(response.data.data);
+          const userData = response.data.data;
+          setUser(userData);
+          
+          // Fetch user permissions if user is a cashier
+          if (userData.role === 'CASHIER') {
+            try {
+              const permissionsResponse = await axios.get(`/api/users/${userData.id}`);
+              setUserPermissions(permissionsResponse.data.data.permissions || []);
+            } catch (error) {
+              console.error('Error fetching user permissions:', error);
+              setUserPermissions([]);
+            }
+          }
         } catch (error) {
           console.error('Auth check failed:', error);
           logout();
@@ -62,6 +75,17 @@ export const AuthProvider = ({ children }) => {
       // Set authorization header for future requests
       axios.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
       
+      // Fetch user permissions if user is a cashier
+      if (userData.role === 'CASHIER') {
+        try {
+          const permissionsResponse = await axios.get(`/api/users/${userData.id}`);
+          setUserPermissions(permissionsResponse.data.data.permissions || []);
+        } catch (error) {
+          console.error('Error fetching user permissions:', error);
+          setUserPermissions([]);
+        }
+      }
+      
       toast.success('Login successful!');
       return { success: true };
     } catch (error) {
@@ -74,6 +98,7 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     setUser(null);
     setToken(null);
+    setUserPermissions([]);
     localStorage.removeItem('token');
     delete axios.defaults.headers.common['Authorization'];
     toast.info('Logged out successfully');
@@ -95,6 +120,71 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Role-based permissions
+  const ROLE_PERMISSIONS = {
+    ADMIN: [
+      'orders.*',
+      'products.*',
+      'categories.*',
+      'tables.*',
+      'stock.*',
+      'reports.*',
+      'settings.*',
+      'users.*'
+    ],
+    CASHIER: [
+      'orders.create',
+      'orders.read',
+      'orders.update',
+      'products.view',
+      'categories.view',
+      'tables.read',
+      'tables.update',
+      'stock.read',
+      'stock.update',
+      'reports.view'
+    ]
+  };
+
+  const hasPermission = (permission) => {
+    if (!user) return false;
+    
+    // Admin has all permissions
+    if (user.role === 'ADMIN') return true;
+    
+    // Check role-based permissions
+    const rolePermissions = ROLE_PERMISSIONS[user.role] || [];
+    
+    // Check exact permission
+    if (rolePermissions.includes(permission)) {
+      return true;
+    }
+    
+    // Check wildcard permissions
+    const [module, action] = permission.split('.');
+    const wildcardPermission = `${module}.*`;
+    
+    if (rolePermissions.includes(wildcardPermission)) {
+      return true;
+    }
+
+    // Check custom user permissions
+    if (userPermissions.includes(permission)) {
+      return true;
+    }
+
+    if (userPermissions.includes(wildcardPermission)) {
+      return true;
+    }
+    
+    return false;
+  };
+
+  const canPerformAction = (action, resource) => {
+    const permission = `${resource}.${action}`;
+    return hasPermission(permission);
+  };
+
   const value = {
     user,
     token,
@@ -105,57 +195,9 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!user,
     isAdmin: user?.role === 'ADMIN',
     isCashier: user?.role === 'CASHIER',
-    hasPermission: (permission) => {
-      // Simple role-based permissions
-      if (!user) return false;
-      
-      // Admin has all permissions
-      if (user.role === 'ADMIN') return true;
-      
-      // Cashier permissions
-      if (user.role === 'CASHIER') {
-        const cashierPermissions = [
-          'orders.create',
-          'orders.read',
-          'orders.update',
-          'products.view',
-          'categories.view',
-          'tables.read',
-          'tables.update',
-          'stock.read',
-          'stock.update'
-        ];
-        return cashierPermissions.includes(permission);
-      }
-      
-      return false;
-    },
-    canPerformAction: (action, resource) => {
-      const permission = `${resource}.${action}`;
-      // Simple role-based permissions
-      if (!user) return false;
-      
-      // Admin has all permissions
-      if (user.role === 'ADMIN') return true;
-      
-      // Cashier permissions
-      if (user.role === 'CASHIER') {
-        const cashierPermissions = [
-          'orders.create',
-          'orders.read',
-          'orders.update',
-          'products.view',
-          'categories.view',
-          'tables.read',
-          'tables.update',
-          'stock.read',
-          'stock.update'
-        ];
-        return cashierPermissions.includes(permission);
-      }
-      
-      return false;
-    }
+    hasPermission,
+    canPerformAction,
+    userPermissions
   };
 
   return (

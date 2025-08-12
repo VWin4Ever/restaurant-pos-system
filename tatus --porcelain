@@ -1,0 +1,5 @@
+[33me22fa04[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Fix authentication issues: Add auth headers and prevent settings fetch before login
+[33mf4b06b1[m Fix CORS: Add specific Netlify domain to allowed origins
+[33me94c466[m Fix Netlify build: Disable ESLint during production build
+[33m5942350[m Fix Railway deployment: Install all dependencies before starting server
+[33m23c7e0d[m Fix Railway build: Remove frontend build from backend deployment

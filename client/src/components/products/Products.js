@@ -400,51 +400,43 @@ const Products = () => {
         {/* Status Cards Row */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
           {/* Total Products */}
-          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
-            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-blue-200 mr-3 sm:mr-6">
-              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-            </span>
-            <div>
-              <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.total}</div>
-              <div className="text-sm sm:text-base text-gray-500 mt-1">Total Products</div>
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Total Products</p>
+                <p className="text-3xl font-bold">{stats.total}</p>
+              </div>
+              <div className="text-4xl">📦</div>
             </div>
           </div>
           {/* Active */}
-          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
-            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-green-200 mr-3 sm:mr-6">
-              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </span>
-            <div>
-              <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.active}</div>
-              <div className="text-sm sm:text-base text-gray-500 mt-1">Active</div>
+          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Active</p>
+                <p className="text-3xl font-bold">{stats.active}</p>
+              </div>
+              <div className="text-4xl">✅</div>
             </div>
           </div>
           {/* Inactive */}
-          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
-            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-red-200 mr-3 sm:mr-6">
-              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </span>
-            <div>
-              <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.inactive}</div>
-              <div className="text-sm sm:text-base text-gray-500 mt-1">Inactive</div>
+          <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Inactive</p>
+                <p className="text-3xl font-bold">{stats.inactive}</p>
+              </div>
+              <div className="text-4xl">❌</div>
             </div>
           </div>
           {/* Drinks */}
-          <div className="flex items-center bg-white rounded-2xl shadow-md px-4 sm:px-6 py-4 sm:py-5">
-            <span className="flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-purple-200 mr-3 sm:mr-6">
-              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
-              </svg>
-            </span>
-            <div>
-              <div className="text-lg sm:text-2xl font-bold text-gray-900">{stats.drinks}</div>
-              <div className="text-sm sm:text-base text-gray-500 mt-1">Drinks</div>
+          <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Drinks</p>
+                <p className="text-3xl font-bold">{stats.drinks}</p>
+              </div>
+              <div className="text-4xl">🥤</div>
             </div>
           </div>
         </div>
