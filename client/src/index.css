@@ -36,7 +36,7 @@
   }
   
   .btn-primary {
-    @apply btn bg-gradient-to-r from-primary-600 to-primary-700 text-white shadow-soft hover:from-primary-700 hover:to-primary-800 focus:ring-primary-500 hover:shadow-medium;
+    @apply btn bg-gradient-to-r from-primary-600 to-primary-700 text-white shadow-soft hover:from-primary-700 hover:to-primary-800 focus:ring-primary-500 hover:shadow-medium hover:scale-[1.02] active:scale-[0.98];
   }
   
   .btn-secondary {
@@ -66,6 +66,14 @@
 
   .input:focus {
     @apply shadow-soft;
+  }
+
+  .input:hover {
+    @apply border-neutral-300;
+  }
+
+  .input:disabled {
+    @apply bg-neutral-50 text-neutral-500 cursor-not-allowed;
   }
 
   /* Enhanced Card Components */
@@ -137,7 +145,7 @@
 
   /* Loading Spinner */
   .loading-spinner {
-    @apply w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin;
+    @apply w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin;
   }
 
   /* Navigation Items */
@@ -265,6 +273,18 @@
 
   .animate-bounce-gentle {
     animation: bounceGentle 2s infinite;
+  }
+
+  .animate-shake {
+    animation: shake 0.5s ease-in-out;
+  }
+
+  .animate-slide-down {
+    animation: slideDown 0.6s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.6s ease-out;
   }
 
   /* Custom Scrollbar */
@@ -444,6 +464,22 @@
     }
   }
 
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+    20%, 40%, 60%, 80% { transform: translateX(2px); }
+  }
+
+  @keyframes slideDown {
+    0% { transform: translateY(-20px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+
+  @keyframes slideUp {
+    0% { transform: translateY(20px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+
   /* Line clamp utility */
   .line-clamp-2 {
     display: -webkit-box;
@@ -594,5 +630,24 @@
 
   .backdrop-blur-3xl {
     backdrop-filter: blur(40px);
+  }
+
+  /* Additional utility classes for login page */
+  .shadow-large {
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  }
+
+  .shadow-extra-large {
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  }
+
+  /* Enhanced form error styling */
+  .form-error {
+    @apply text-sm text-error mt-1 flex items-center animate-shake;
+  }
+
+  /* Enhanced label styling */
+  .form-label {
+    @apply block text-sm font-medium text-text-primary mb-2 flex items-center;
   }
 } 

@@ -14,7 +14,7 @@ const schema = yup.object({
 }).required();
 
 const EditOrder = ({ order, onClose, onOrderUpdated }) => {
-  const { calculateTax } = useSettings();
+  const { calculateTax, formatCurrency } = useSettings();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -23,6 +23,7 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
   const [submitting, setSubmitting] = useState(false);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const {
     register,
@@ -95,8 +96,15 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
   };
 
   const filteredProducts = selectedCategory === 'all' 
-    ? products 
-    : products.filter(product => product.category.name === selectedCategory);
+    ? products.filter(product => 
+        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.description?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : products.filter(product => 
+        product.category.name === selectedCategory &&
+        (product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+         product.description?.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
 
   const addToOrder = (product) => {
     const existingItem = orderItems.find(item => item.productId === product.id);
@@ -175,8 +183,8 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-primary-900/50 to-secondary-900/50 backdrop-blur-sm overflow-y-auto h-full w-full z-50">
-        <div className="relative top-20 mx-auto p-5 border-0 w-11/12 md:w-5/6 lg:w-4/5 shadow-2xl rounded-2xl bg-gradient-to-br from-white to-gray-50">
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="bg-background rounded-2xl shadow-large p-8 max-w-md w-full mx-4">
           <LoadingSpinner />
         </div>
       </div>
@@ -185,26 +193,26 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
 
   if (error) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-primary-900/50 to-secondary-900/50 backdrop-blur-sm overflow-y-auto h-full w-full z-50">
-        <div className="relative top-20 mx-auto p-5 border-0 w-11/12 md:w-5/6 lg:w-4/5 shadow-2xl rounded-2xl bg-gradient-to-br from-white to-gray-50">
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="bg-background rounded-2xl shadow-large p-8 max-w-md w-full mx-4 transform animate-fade-in-up">
           <div className="text-center py-8">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Icon name="alert" className="w-8 h-8 text-red-600" />
+            <div className="w-16 h-16 bg-error/10 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Icon name="alert" className="w-8 h-8 text-error" />
             </div>
-            <div className="text-red-600 text-lg font-medium mb-6">{error}</div>
+            <div className="text-error text-lg font-medium mb-6">{error}</div>
             <div className="flex gap-4 justify-center">
               <button
                 onClick={fetchData}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-primary-600 to-secondary-600 hover:from-primary-700 hover:to-secondary-700 text-white font-semibold rounded-lg transition-all duration-200 transform hover:scale-105"
+                className="btn-primary"
               >
-                <Icon name="refresh" className="w-5 h-5" />
+                <Icon name="refresh" className="w-5 h-5 mr-2" />
                 Retry
               </button>
               <button
                 onClick={onClose}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold rounded-lg transition-all duration-200"
+                className="btn-secondary"
               >
-                <Icon name="close" className="w-5 h-5" />
+                <Icon name="close" className="w-5 h-5 mr-2" />
                 Close
               </button>
             </div>
@@ -215,122 +223,53 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
   }
 
   return (
-    <div className="fixed inset-0 bg-gradient-to-br from-primary-900/50 to-secondary-900/50 backdrop-blur-sm overflow-y-auto h-full w-full z-50">
-      <div className="relative top-10 mx-auto p-6 border-0 w-11/12 md:w-5/6 lg:w-4/5 shadow-2xl rounded-2xl bg-gradient-to-br from-white to-gray-50 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-8">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-full flex items-center justify-center">
-              <Icon name="edit" className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h2 className="text-3xl font-bold text-gray-900">
-                Edit Order
-              </h2>
-              <p className="text-gray-600">#{order.orderNumber}</p>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+      <div className="relative mx-auto px-4 py-6 w-full max-w-7xl shadow-large rounded-2xl bg-background max-h-[90vh] overflow-hidden">
+        {/* Close button in top right corner */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-neutral-100 hover:bg-neutral-200 transition-colors duration-200 z-10"
+          aria-label="Close edit order"
+        >
+          <Icon name="close" className="w-5 h-5 text-neutral-600" />
+        </button>
+
+        {/* Header */}
+        <div className="mb-6 text-center">
+          <div className="mb-4 flex justify-center">
+            <div className="w-16 h-16 bg-primary-600 rounded-full flex items-center justify-center shadow-soft">
+              <Icon name="edit" className="w-8 h-8 text-white" />
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-2xl transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary-400 rounded-lg p-2"
-          >
-            <Icon name="close" className="w-6 h-6" />
-          </button>
+          <h2 className="text-3xl font-bold text-text-primary mb-2">
+            Edit Order
+          </h2>
+          <p className="text-text-secondary">#{order.orderNumber} - Table {order.table?.number}</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
-          {/* Order Info */}
-          <div className="bg-gradient-to-r from-primary-50 to-secondary-50 p-6 rounded-xl border border-primary-200">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Icon name="info" className="w-5 h-5 text-primary-600" />
-              Order Information
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-sm">
-              <div className="bg-white p-4 rounded-lg shadow-sm">
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon name="receipt" className="w-4 h-4 text-primary-500" />
-                  <span className="font-medium text-gray-500">Order #:</span>
-                </div>
-                <p className="text-gray-900 font-semibold">{order.orderNumber}</p>
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col lg:flex-row gap-6 h-full">
+          {/* Products Selection */}
+          <div className="flex-1 flex flex-col">
+            <div className="bg-surface rounded-xl shadow-soft border border-neutral-100 overflow-hidden flex flex-col h-full">
+              <div className="px-6 py-4 border-b border-neutral-200 bg-gradient-to-r from-primary-50 to-primary-100">
+                <h3 className="text-xl font-semibold text-text-primary flex items-center gap-2">
+                  <Icon name="food" className="w-6 h-6 text-primary-600" />
+                  Select Products
+                </h3>
               </div>
-              <div className="bg-white p-4 rounded-lg shadow-sm">
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon name="table" className="w-4 h-4 text-primary-500" />
-                  <span className="font-medium text-gray-500">Table:</span>
-                </div>
-                <p className="text-gray-900 font-semibold">Table {order.table?.number}</p>
-              </div>
-              <div className="bg-white p-4 rounded-lg shadow-sm">
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon name="status" className="w-4 h-4 text-primary-500" />
-                  <span className="font-medium text-gray-500">Status:</span>
-                </div>
-                <p className="text-gray-900 font-semibold capitalize">{order.status.toLowerCase()}</p>
-              </div>
-              <div className="bg-white p-4 rounded-lg shadow-sm">
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon name="calendar" className="w-4 h-4 text-primary-500" />
-                  <span className="font-medium text-gray-500">Created:</span>
-                </div>
-                <p className="text-gray-900 font-semibold">
-                  {new Date(order.createdAt).toLocaleDateString()}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Order Details */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200">
-              <label className="block text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-                <Icon name="note" className="w-5 h-5 text-primary-600" />
-                Customer Note
-              </label>
-              <textarea
-                {...register('customerNote')}
-                rows="3"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all duration-200 resize-none"
-                placeholder="Special instructions, allergies, etc."
-              />
-            </div>
-
-            <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200">
-              <label className="block text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-                <Icon name="discount" className="w-5 h-5 text-primary-600" />
-                Discount (%)
-              </label>
-              <input
-                {...register('discount')}
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all duration-200"
-                placeholder="0"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Products Selection */}
-            <div className="lg:col-span-2">
-              <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-primary-50 to-secondary-50">
-                  <h3 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                    <Icon name="food" className="w-6 h-6 text-primary-600" />
-                    Select Products
-                  </h3>
-                </div>
-                
-                {/* Category Filter */}
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <div className="flex flex-wrap gap-2">
+              
+              {/* Category Filter and Search */}
+              <div className="px-6 py-4 border-b border-neutral-200 bg-surface">
+                <div className="flex flex-col sm:flex-row gap-4">
+                  {/* Category Filter */}
+                  <div className="flex flex-wrap gap-2 flex-1">
                     <button
                       type="button"
                       onClick={() => setSelectedCategory('all')}
-                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 transform hover:scale-105 ${
-                        selectedCategory === 'all'
-                          ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white shadow-lg'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      className={`inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium border transition-all duration-200 whitespace-nowrap ${
+                        selectedCategory === 'all' 
+                          ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white border-primary-600 shadow-soft' 
+                          : 'bg-surface text-text-primary border-neutral-200 hover:bg-surfaceHover hover:border-primary-300'
                       }`}
                     >
                       <Icon name="grid" className="w-4 h-4" />
@@ -341,10 +280,10 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
                         key={category.id}
                         type="button"
                         onClick={() => setSelectedCategory(category.name)}
-                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 transform hover:scale-105 ${
-                          selectedCategory === category.name
-                            ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white shadow-lg'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        className={`inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium border transition-all duration-200 whitespace-nowrap ${
+                          selectedCategory === category.name 
+                            ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white border-primary-600 shadow-soft' 
+                            : 'bg-surface text-text-primary border-neutral-200 hover:bg-surfaceHover hover:border-primary-300'
                         }`}
                       >
                         <Icon name="category" className="w-4 h-4" />
@@ -352,137 +291,214 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
                       </button>
                     ))}
                   </div>
-                </div>
-
-                {/* Products Grid */}
-                <div className="p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredProducts.map(product => (
-                      <div
-                        key={product.id}
-                        className="group relative overflow-hidden border border-gray-200 rounded-xl p-4 hover:shadow-lg transition-all duration-300 transform hover:scale-105 cursor-pointer bg-white"
-                        onClick={() => addToOrder(product)}
-                      >
-                        <div className="flex justify-between items-start mb-3">
-                          <h4 className="font-medium text-gray-900 flex-1">{product.name}</h4>
-                          <span className="text-lg font-bold text-primary-600">
-                            ${parseFloat(product.price).toFixed(2)}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-600 mb-4 line-clamp-2">{product.description}</p>
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full flex items-center gap-1">
-                            <Icon name="category" className="w-3 h-3" />
-                            {product.category.name}
-                          </span>
-                          <button
-                            type="button"
-                            className="text-primary-600 hover:text-primary-800 text-sm font-medium flex items-center gap-1 transition-colors duration-200"
-                          >
-                            <Icon name="plus" className="w-4 h-4" />
-                            Add to Order
-                          </button>
-                        </div>
-                        <div className="absolute inset-0 bg-gradient-to-r from-primary-500/0 to-primary-500/0 group-hover:from-primary-500/5 group-hover:to-primary-500/10 transition-all duration-300"></div>
-                      </div>
-                    ))}
+                  
+                  {/* Search */}
+                  <div className="relative sm:w-64">
+                    <Icon name="search" className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+                    <input
+                      type="text"
+                      placeholder="Search products..."
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      className="w-full pl-12 pr-4 py-2 sm:py-3 border border-neutral-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-primary-500/20 focus:border-primary-600 transition-all duration-200 text-sm sm:text-base bg-background"
+                    />
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Order Summary */}
-            <div className="lg:col-span-1">
-              <div className="bg-gradient-to-br from-white to-gray-50 rounded-xl shadow-xl border border-gray-200 sticky top-4">
-                <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-primary-50 to-secondary-50">
-                  <h3 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                    <Icon name="receipt" className="w-6 h-6 text-primary-600" />
-                    Order Summary
-                  </h3>
-                </div>
-                
-                <div className="p-6">
-                  {orderItems.length === 0 ? (
-                    <div className="text-center text-gray-500 py-8">
-                      <Icon name="cart" className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                      <p>No items added yet</p>
+              {/* Products Grid */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
+                  {filteredProducts.length === 0 ? (
+                    <div className="col-span-full text-center text-text-muted py-12">
+                      <Icon name="search" className="w-16 h-16 mx-auto mb-4 text-neutral-300" />
+                      <p className="text-lg">No products found.</p>
                     </div>
                   ) : (
-                    <div className="space-y-4">
-                      {orderItems.map(item => (
-                        <div key={item.productId} className="flex justify-between items-center p-3 bg-white rounded-lg shadow-sm border border-gray-100">
-                          <div className="flex-1">
-                            <p className="font-medium text-gray-900 flex items-center gap-2">
-                              <Icon name="food" className="w-4 h-4 text-primary-500" />
-                              {item.product.name}
-                            </p>
-                            <p className="text-sm text-gray-600">${item.price.toFixed(2)} each</p>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <button
-                              type="button"
-                              onClick={() => updateQuantity(item.productId, item.quantity - 1)}
-                              className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center hover:bg-gray-300 transition-colors duration-200"
-                            >
-                              <Icon name="minus" className="w-4 h-4 text-gray-700" />
-                            </button>
-                            <span className="w-8 text-center font-semibold text-gray-900">{item.quantity}</span>
-                            <button
-                              type="button"
-                              onClick={() => updateQuantity(item.productId, item.quantity + 1)}
-                              className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center hover:bg-gray-300 transition-colors duration-200"
-                            >
-                              <Icon name="plus" className="w-4 h-4 text-gray-700" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => removeItem(item.productId)}
-                              className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center hover:bg-red-200 text-red-600 transition-colors duration-200 ml-2"
-                            >
-                              <Icon name="trash" className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-
-                      <div className="border-t pt-4 space-y-3">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">Subtotal:</span>
-                          <span className="font-medium">${calculateSubtotal().toFixed(2)}</span>
-                        </div>
-                        {discountPercent > 0 && (
-                          <div className="flex justify-between text-sm">
-                            <span className="text-gray-600">Discount ({discountPercent}%):</span>
-                            <span className="font-medium text-red-600">-${calculateDiscount().toFixed(2)}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between text-lg font-bold border-t pt-3">
-                          <span className="text-gray-900">Total:</span>
-                          <span className="text-primary-600">${calculateTotal().toFixed(2)}</span>
-                        </div>
-                      </div>
-
-                      <button
-                        type="submit"
-                        disabled={submitting || orderItems.length === 0}
-                        className="w-full py-4 rounded-xl bg-gradient-to-r from-primary-600 to-secondary-600 hover:from-primary-700 hover:to-secondary-700 text-white font-bold text-lg shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary-400 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                    filteredProducts.map(product => (
+                      <div
+                        key={product.id}
+                        className={`group relative flex flex-col items-center justify-between p-4 rounded-xl border-2 bg-gradient-to-br from-primary-50 to-surface shadow-soft transition-all duration-200 hover:shadow-medium hover:scale-[1.02] min-h-[200px] ${!product.isActive ? 'opacity-50 pointer-events-none' : ''} ${orderItems.some(item => item.productId === product.id) ? 'border-primary-600 shadow-medium' : 'border-primary-100'}`}
                       >
-                        {submitting ? (
-                          <div className="flex items-center justify-center gap-2">
-                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                            Updating Order...
+                        <div className="flex-1 flex flex-col items-center justify-center w-full">
+                          {product.imageUrl ? (
+                            <img
+                              src={product.imageUrl}
+                              alt={product.name}
+                              className="w-16 h-16 object-cover rounded-lg mb-3 shadow-soft"
+                              onError={e => { if (e.target && e.target.style) { e.target.style.display = 'none'; } }}
+                            />
+                          ) : (
+                            <div className="w-16 h-16 bg-primary-100 rounded-lg flex items-center justify-center mb-3">
+                              <Icon name="food" className="w-8 h-8 text-primary-500" />
+                            </div>
+                          )}
+                          <div className="text-center w-full">
+                            <div className="font-medium text-text-primary break-words max-w-[120px] mx-auto mb-1 text-sm">{product.name}</div>
+                            <div className="text-sm font-bold text-primary-600 mb-2">${parseFloat(product.price).toFixed(2)}</div>
                           </div>
-                        ) : (
-                          <span className="flex items-center justify-center gap-2">
-                            <Icon name="check" className="w-5 h-5" />
-                            Update Order
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => addToOrder(product)}
+                          className="w-12 h-12 flex items-center justify-center rounded-full bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-bold shadow-soft hover:shadow-medium transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-primary-500/20"
+                          disabled={!product.isActive || submitting}
+                          aria-label={`Add ${product.name} to order`}
+                        >
+                          <Icon name="plus" className="w-6 h-6" />
+                        </button>
+                        {!product.isActive && (
+                          <span className="absolute top-2 left-2 text-xs bg-error text-white px-2 py-1 rounded-full flex items-center gap-1">
+                            <Icon name="close" className="w-3 h-3" />
+                            Inactive
                           </span>
                         )}
-                      </button>
-                    </div>
+                      </div>
+                    ))
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+          
+          {/* Order Summary Section */}
+          <div className="lg:w-96 w-full flex flex-col gap-6">
+            <div className="bg-surface rounded-xl shadow-soft border border-neutral-100 p-6 lg:sticky lg:top-8 h-fit self-start w-full max-h-[80vh] overflow-y-auto flex flex-col">
+              <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2">
+                <Icon name="cart" className="w-5 h-5 text-primary-600" />
+                Order Summary
+              </h3>
+              
+              {/* Table Info */}
+              <div className="flex items-center justify-between mb-4 p-3 bg-gradient-to-r from-primary-50 to-primary-100 rounded-lg border border-primary-200">
+                <div className="flex items-center gap-2">
+                  <Icon name="table" className="w-5 h-5 text-primary-600" />
+                  <span className="font-semibold text-primary-700">
+                    Table {order.table?.number}
+                  </span>
+                </div>
+                <span className="text-sm text-primary-600 font-medium">
+                  #{order.orderNumber}
+                </span>
+              </div>
+
+              {/* Customer Note */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-text-primary mb-2 flex items-center gap-2">
+                  <Icon name="note" className="w-4 h-4 text-primary-600" />
+                  Customer Note
+                </label>
+                <textarea
+                  {...register('customerNote')}
+                  rows="3"
+                  className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-primary-500/20 focus:border-primary-600 transition-all duration-200 resize-none bg-background"
+                  placeholder="Special instructions, allergies, etc."
+                />
+              </div>
+
+              {/* Discount */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-text-primary mb-2 flex items-center gap-2">
+                  <Icon name="discount" className="w-4 h-4 text-primary-600" />
+                  Discount (%)
+                </label>
+                <input
+                  {...register('discount')}
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-primary-500/20 focus:border-primary-600 transition-all duration-200 bg-background"
+                  placeholder="0"
+                />
+              </div>
+              
+              {/* Order Items */}
+              {orderItems.length === 0 ? (
+                <div className="text-center text-text-muted py-8">
+                  <Icon name="cart" className="w-16 h-16 mx-auto mb-4 text-neutral-300" />
+                  <p>No items added yet</p>
+                </div>
+              ) : (
+                <div className="space-y-3 mb-4">
+                  {orderItems.map(item => (
+                    <div key={item.productId} className="flex justify-between items-center p-3 bg-background rounded-lg shadow-soft border border-neutral-100">
+                      <div className="flex-1">
+                        <p className="font-medium text-text-primary flex items-center gap-2">
+                          <Icon name="food" className="w-4 h-4 text-primary-500" />
+                          {item.product.name}
+                        </p>
+                        <p className="text-sm text-text-secondary">${item.price.toFixed(2)} each</p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => updateQuantity(item.productId, item.quantity - 1)}
+                          className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center hover:bg-neutral-200 transition-colors duration-200"
+                        >
+                          <Icon name="minus" className="w-4 h-4 text-text-primary" />
+                        </button>
+                        <span className="w-8 text-center font-semibold text-text-primary">{item.quantity}</span>
+                        <button
+                          type="button"
+                          onClick={() => updateQuantity(item.productId, item.quantity + 1)}
+                          className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center hover:bg-neutral-200 transition-colors duration-200"
+                        >
+                          <Icon name="plus" className="w-4 h-4 text-text-primary" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeItem(item.productId)}
+                          className="w-8 h-8 rounded-full bg-error/10 flex items-center justify-center hover:bg-error/20 text-error transition-colors duration-200 ml-2"
+                        >
+                          <Icon name="trash" className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Totals */}
+              <div className="border-t border-neutral-200 pt-4 space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-text-secondary">Subtotal:</span>
+                  <span className="font-medium text-text-primary">${calculateSubtotal().toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-text-secondary">Tax:</span>
+                  <span className="font-medium text-text-primary">${calculateTaxAmount().toFixed(2)}</span>
+                </div>
+                {discountPercent > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-text-secondary">Discount ({discountPercent}%):</span>
+                    <span className="font-medium text-error">-${calculateDiscount().toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-lg font-bold border-t border-neutral-200 pt-3">
+                  <span className="text-text-primary">Total:</span>
+                  <span className="text-primary-600">${calculateTotal().toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={submitting || orderItems.length === 0}
+                className="w-full py-4 rounded-xl bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-bold text-lg shadow-soft hover:shadow-medium transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none mt-6"
+              >
+                {submitting ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Updating Order...
+                  </div>
+                ) : (
+                  <span className="flex items-center justify-center gap-2">
+                    <Icon name="check" className="w-5 h-5" />
+                    Update Order
+                  </span>
+                )}
+              </button>
             </div>
           </div>
         </form>

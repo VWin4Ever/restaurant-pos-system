@@ -54,10 +54,17 @@ router.get('/:id', async (req, res) => {
 });
 
 // Update table status (for admin only)
-router.patch('/:id/status', async (req, res) => {
+router.patch('/:id/status', requirePermission('tables.update'), async (req, res) => {
   try {
     const { status } = req.body;
     const tableId = parseInt(req.params.id);
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: 'Status is required'
+      });
+    }
 
     if (!['AVAILABLE', 'OCCUPIED', 'RESERVED'].includes(status)) {
       return res.status(400).json({

@@ -253,6 +253,15 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
     return (
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center">
         <div className="relative mx-auto px-4 py-6 w-full max-w-2xl shadow-large rounded-2xl bg-background max-h-[90vh] overflow-hidden">
+          {/* Close button in top right corner */}
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-neutral-100 hover:bg-neutral-200 transition-colors duration-200 z-10"
+            aria-label="Close table selection"
+          >
+            <Icon name="close" className="w-5 h-5 text-neutral-600" />
+          </button>
+          
           <div className="w-full max-w-xl mx-auto">
             <div className="mb-6 text-center">
               <div className="mb-4 flex justify-center">
@@ -304,17 +313,6 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
                 })}
               </div>
             </div>
-            
-            <div className="mt-6 text-center">
-              <button
-                onClick={onClose}
-                className="btn-secondary"
-                aria-label="Cancel order creation"
-              >
-                <Icon name="close" className="w-5 h-5 mr-2" />
-                Cancel
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -324,12 +322,21 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm h-full w-full z-50 flex items-center justify-center p-2 sm:p-4">
       <div className="relative mx-auto w-full max-w-screen-2xl shadow-large rounded-2xl bg-background h-[95vh] sm:h-[90vh] overflow-hidden">
+        {/* Close button in top right corner */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-neutral-100 hover:bg-neutral-200 transition-colors duration-200 z-50"
+          aria-label="Close order creation"
+        >
+          <Icon name="close" className="w-5 h-5 text-neutral-600" />
+        </button>
+        
         <form onSubmit={handleSubmit(onSubmit)} className="w-full h-full">
           <div className="flex flex-col lg:flex-row lg:gap-6 w-full h-full">
             {/* Products Section */}
             <div className="lg:flex-1 flex flex-col">
               {/* Header with Categories and Search */}
-              <div className="mb-4 sm:mb-6 sticky top-0 z-20 bg-background/95 backdrop-blur-sm pb-4 rounded-xl border-b border-neutral-100">
+              <div className="pt-4 mb-4 sm:mb-6 sticky top-0 z-20 bg-background/95 backdrop-blur-sm pb-4 rounded-xl border-b border-neutral-100">
                 {/* Categories */}
                 <div className="flex space-x-2 overflow-x-auto pb-4 mb-4 scrollbar-hide">
                   <button

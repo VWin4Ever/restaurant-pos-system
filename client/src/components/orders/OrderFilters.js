@@ -32,10 +32,10 @@ const OrderFilters = ({ filters, onFiltersChange, onReset, showTodayOnly = false
         <div>
           <h3 className="text-xl font-bold text-primary-800 leading-tight">Filters</h3>
           {showTodayOnly && (
-            <p className="text-xs text-primary-500 flex items-center space-x-1 mt-0.5">
+            <div className="text-xs text-primary-500 flex items-center space-x-1 mt-0.5">
               <Icon name="calendar" size="xs" />
               <span>Showing orders for today ({new Date().toLocaleDateString()})</span>
-            </p>
+            </div>
           )}
         </div>
       </div>

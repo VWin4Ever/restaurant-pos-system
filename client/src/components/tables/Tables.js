@@ -105,14 +105,30 @@ const Tables = () => {
 
   const updateTableStatus = async (tableId, newStatus) => {
     try {
-      await axios.patch(`/api/tables/${tableId}/status`, { status: newStatus });
+      const response = await axios.patch(`/api/tables/${tableId}/status`, { status: newStatus });
+      
       toast.success('Table status updated successfully');
       fetchTables();
       setShowStatusModal(false);
       setSelectedTable(null);
     } catch (error) {
       console.error('Failed to update table status:', error);
-      toast.error('Failed to update table status');
+      
+      // Handle specific error cases
+      if (error.response?.data?.message) {
+        const errorMessage = error.response.data.message;
+        
+        if (errorMessage.includes('active order') || errorMessage.includes('already occupied')) {
+          toast.error(
+            'Cannot update table status. There is an active order for this table. Please complete or cancel the order first.',
+            { autoClose: 5000 }
+          );
+        } else {
+          toast.error(errorMessage);
+        }
+      } else {
+        toast.error('Failed to update table status');
+      }
     }
   };
 
@@ -496,6 +512,21 @@ const Tables = () => {
             <h3 className="text-lg font-medium text-gray-900 mb-4">
               Change Table {selectedTable.number} Status
             </h3>
+            
+            {/* Current Status Info */}
+            <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">Current Status:</span>
+                <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                  selectedTable.status === 'AVAILABLE' ? 'bg-green-100 text-green-800' :
+                  selectedTable.status === 'OCCUPIED' ? 'bg-yellow-100 text-yellow-800' :
+                  'bg-blue-100 text-blue-800'
+                }`}>
+                  {selectedTable.status}
+                </span>
+              </div>
+            </div>
+
             <div className="space-y-3">
               {['AVAILABLE', 'OCCUPIED', 'RESERVED'].map((status) => (
                 <button
@@ -514,6 +545,15 @@ const Tables = () => {
                 </button>
               ))}
             </div>
+            
+            {/* Help Text */}
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+              <p className="text-xs text-blue-700">
+                <strong>Note:</strong> Table status changes may be restricted if there are active orders. 
+                Complete or cancel existing orders first to change status.
+              </p>
+            </div>
+            
             <div className="flex justify-end gap-3 mt-6">
               <button
                 onClick={() => {

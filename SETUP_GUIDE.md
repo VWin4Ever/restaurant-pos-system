@@ -85,7 +85,7 @@ JWT_SECRET="your-super-secret-jwt-key-change-this-in-production"
 JWT_EXPIRES_IN="24h"
 PORT=5000
 NODE_ENV=development
-```
+``` 
 
 **Note**: 
 - If your MySQL has a password, update the DATABASE_URL: `mysql://root:YOUR_PASSWORD@localhost:3306/restaurant_pos`

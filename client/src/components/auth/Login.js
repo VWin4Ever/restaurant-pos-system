@@ -14,6 +14,7 @@ const schema = yup.object({
 const Login = () => {
   const { login } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
@@ -33,41 +34,42 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 via-white to-accent-50 py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-      {/* Background decoration */}
+    <div className="min-h-screen flex items-center justify-center bg-green-50 py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+      {/* Enhanced Background decoration */}
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-primary-200/30 to-accent-200/30 rounded-full blur-3xl animate-float"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-tr from-accent-200/30 to-primary-200/30 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }}></div>
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-primary-200/20 to-accent-200/20 rounded-full blur-3xl animate-float"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-tr from-accent-200/20 to-primary-200/20 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }}></div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-gradient-to-r from-primary-100/10 to-accent-100/10 rounded-full blur-3xl animate-pulse-gentle"></div>
       </div>
 
       <div className="max-w-md w-full space-y-8 relative z-10">
-        <div className="text-center animate-slide-down">
-          <div className="mx-auto w-20 h-20 flex items-center justify-center rounded-3xl bg-gradient-to-br from-primary-100 to-primary-200 shadow-soft border border-primary-200/50">
-            <Icon name="home" size="2xl" color="#0ea5e9" />
+        {/* Enhanced Brand Section */}
+        <div className="flex flex-col items-center mb-8 animate-slide-up" style={{ animationDelay: '100ms' }}>
+          <div className="relative mb-4">
+            <img src={logo} alt="Angkor Holiday Hotel Logo" className="h-32 w-auto rounded-2xl shadow-soft border-2 border-white/50" />
+            <div className="absolute inset-0 bg-gradient-to-br from-primary-500/10 to-accent-500/10 rounded-2xl"></div>
           </div>
-          <h2 className="mt-6 text-4xl font-bold text-gradient">
-            Restaurant POS
+          <h2 className="text-2xl font-bold text-primary text-center leading-tight">
+            Welcome to Angkor Holiday Hotel POS
           </h2>
-          <p className="mt-3 text-lg text-neutral-600 font-medium">
-            Sign in to your account
+          <p className="text-neutral-500 text-center mt-2">
+            Secure restaurant management system
           </p>
         </div>
 
-        <div className="flex flex-col items-center mb-8">
-          <img src={logo} alt="Angkor Holiday Hotel Logo" className="h-16 w-auto mb-2 rounded-lg shadow" />
-          <h2 className="text-2xl font-bold text-primary">Welcome to Angkor Holiday Hotel POS</h2>
-        </div>
-
-        <div className="card-gradient p-8 animate-slide-up" style={{ animationDelay: '200ms' }}>
+        {/* Enhanced Form Card */}
+        <div className="card-gradient p-8 animate-slide-up shadow-large border border-white/20" style={{ animationDelay: '200ms' }}>
           <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
-            <div className="space-y-4">
+            <div className="space-y-5">
+              {/* Username Field */}
               <div className="form-group">
-                <label htmlFor="username" className="form-label">
+                <label htmlFor="username" className="form-label flex items-center">
+                  <Icon name="profile" size="sm" className="mr-2 text-primary-600" />
                   Username
                 </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Icon name="profile" size="sm" className="text-neutral-400" />
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Icon name="profile" size="sm" className="text-neutral-400 group-focus-within:text-primary-600 transition-colors" />
                   </div>
                   <input
                     {...register('username')}
@@ -75,81 +77,102 @@ const Login = () => {
                     name="username"
                     type="text"
                     autoComplete="username"
-                    className={`input pl-10 ${errors.username ? 'border-danger-300 focus:ring-danger-500/20 focus:border-danger-500' : ''}`}
+                    className={`input pl-12 pr-4 transition-all duration-300 ${
+                      errors.username 
+                        ? 'border-danger-300 focus:ring-danger-500/20 focus:border-danger-500' 
+                        : 'border-neutral-200 focus:ring-primary-500/20 focus:border-primary-600 hover:border-primary-300'
+                    }`}
                     placeholder="Enter your username"
                   />
+                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                    <div className="w-2 h-2 bg-primary-500 rounded-full opacity-0 group-focus-within:opacity-100 transition-opacity"></div>
+                  </div>
                 </div>
                 {errors.username && (
-                  <p className="form-error">{errors.username.message}</p>
+                  <p className="form-error animate-shake">
+                    <Icon name="error" size="sm" className="mr-1" />
+                    {errors.username.message}
+                  </p>
                 )}
               </div>
 
+              {/* Password Field */}
               <div className="form-group">
-                <label htmlFor="password" className="form-label">
+                <label htmlFor="password" className="form-label flex items-center">
+                  <Icon name="eye" size="sm" className="mr-2 text-primary-600" />
                   Password
                 </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Icon name="eye" size="sm" className="text-neutral-400" />
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Icon name="eye" size="sm" className="text-neutral-400 group-focus-within:text-primary-600 transition-colors" />
                   </div>
                   <input
                     {...register('password')}
                     id="password"
                     name="password"
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     autoComplete="current-password"
-                    className={`input pl-10 ${errors.password ? 'border-danger-300 focus:ring-danger-500/20 focus:border-danger-500' : ''}`}
+                    className={`input pl-12 pr-12 transition-all duration-300 ${
+                      errors.password 
+                        ? 'border-danger-300 focus:ring-danger-500/20 focus:border-danger-500' 
+                        : 'border-neutral-200 focus:ring-primary-500/20 focus:border-primary-600 hover:border-primary-300'
+                    }`}
                     placeholder="Enter your password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-400 hover:text-primary-600 transition-colors"
+                  >
+                    <Icon name={showPassword ? "eyeOff" : "eye"} size="sm" />
+                  </button>
                 </div>
                 {errors.password && (
-                  <p className="form-error">{errors.password.message}</p>
+                  <p className="form-error animate-shake">
+                    <Icon name="error" size="sm" className="mr-1" />
+                    {errors.password.message}
+                  </p>
                 )}
               </div>
             </div>
 
-            <div>
+            {/* Enhanced Submit Button */}
+            <div className="pt-2">
               <button
                 type="submit"
                 disabled={isLoading}
-                className="btn-primary w-full flex justify-center items-center py-4 text-lg font-semibold"
+                className="btn-primary w-full flex justify-center items-center py-4 text-lg font-semibold relative overflow-hidden group transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
               >
-                {isLoading ? (
-                  <div className="loading-spinner"></div>
-                ) : (
-                  <>
-                    <Icon name="check" size="sm" className="mr-2" />
-                    Sign in
-                  </>
-                )}
-              </button>
-            </div>
-
-            <div className="text-center space-y-3">
-              <div className="bg-gradient-to-r from-neutral-50 to-neutral-100 rounded-xl p-4 border border-neutral-200/50">
-                <p className="text-sm font-semibold text-neutral-700 mb-2">
-                  Demo Credentials
-                </p>
-                <div className="space-y-1 text-xs text-neutral-600">
-                  <div className="flex justify-between items-center">
-                    <span className="font-medium">Admin:</span>
-                    <span className="font-mono bg-white px-2 py-1 rounded border">admin / admin123</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="font-medium">Cashier:</span>
-                    <span className="font-mono bg-white px-2 py-1 rounded border">cashier / cashier123</span>
-                  </div>
+                <div className="absolute inset-0 bg-gradient-to-r from-primary-600 to-primary-700 group-hover:from-primary-700 group-hover:to-primary-800 transition-all duration-300"></div>
+                <div className="relative flex items-center">
+                  {isLoading ? (
+                    <div className="loading-spinner mr-3"></div>
+                  ) : (
+                    <Icon name="check" size="sm" className="mr-3 group-hover:scale-110 transition-transform" />
+                  )}
+                  {isLoading ? 'Signing in...' : 'Sign in'}
                 </div>
-              </div>
+              </button>
             </div>
           </form>
         </div>
 
-        {/* Footer */}
+        {/* Enhanced Footer */}
         <div className="text-center animate-slide-up" style={{ animationDelay: '400ms' }}>
-          <p className="text-sm text-neutral-500">
-            Secure restaurant management system
-          </p>
+          <div className="flex items-center justify-center space-x-2 text-sm text-neutral-500">
+            <Icon name="check" size="xs" className="text-success" />
+            <span>Secure restaurant management system</span>
+          </div>
+          <div className="mt-2 flex items-center justify-center space-x-4 text-xs text-neutral-400">
+            <span className="flex items-center">
+              <Icon name="shield" size="xs" className="mr-1" />
+              SSL Encrypted
+            </span>
+            <span className="flex items-center">
+              <Icon name="clock" size="xs" className="mr-1" />
+              24/7 Support
+            </span>
+          </div>
         </div>
       </div>
     </div>
