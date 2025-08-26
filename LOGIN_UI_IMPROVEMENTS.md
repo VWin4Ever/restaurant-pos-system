@@ -214,3 +214,9 @@ The login page UI improvements provide:
 
 These improvements transform the login page into a modern, professional, and user-friendly interface that enhances the overall POS system experience while maintaining the restaurant's brand identity and security standards.
 
+
+
+
+
+
+

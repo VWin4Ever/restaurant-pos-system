@@ -527,3 +527,5 @@ orders (1) ←→ (N) order_items
 
 *This data dictionary provides complete documentation of the restaurant POS database schema. For technical implementation details, refer to the Prisma schema file and application code.*
 
+
+

@@ -27,8 +27,16 @@ const PORT = process.env.PORT || 5000;
 const WebSocketServer = require('./websocket');
 const wss = new WebSocketServer(server);
 
-// Security middleware
-app.use(helmet());
+// Security middleware with cross-origin image policy
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "img-src": ["'self'", "data:", "http://localhost:5000", "https:"],
+    },
+  },
+}));
 
 // Rate limiting
 const limiter = rateLimit({
@@ -74,6 +82,14 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Serve food and beverage images with CORS headers
+app.use('/food_and_berverage', (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
+}, express.static(path.join(__dirname, 'food_and_berverage')));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

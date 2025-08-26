@@ -6,6 +6,7 @@ import axios from 'axios';
 import { toast } from 'react-toastify';
 import LoadingSpinner from '../common/LoadingSpinner';
 import { useSettings } from '../../contexts/SettingsContext';
+import { useAuth } from '../../contexts/AuthContext';
 import Icon from '../common/Icon';
 
 const schema = yup.object({
@@ -16,6 +17,7 @@ const schema = yup.object({
 
 const CreateOrder = ({ onClose, onOrderCreated }) => {
   const { calculateTax, formatCurrency } = useSettings();
+  const { user, token } = useAuth();
   const [tables, setTables] = useState([]);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -334,38 +336,64 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
         <form onSubmit={handleSubmit(onSubmit)} className="w-full h-full">
           <div className="flex flex-col lg:flex-row lg:gap-6 w-full h-full">
             {/* Products Section */}
-            <div className="lg:flex-1 flex flex-col">
+            <div className="lg:flex-1 flex flex-col min-h-0">
               {/* Header with Categories and Search */}
               <div className="pt-4 mb-4 sm:mb-6 sticky top-0 z-20 bg-background/95 backdrop-blur-sm pb-4 rounded-xl border-b border-neutral-100">
-                {/* Categories */}
-                <div className="flex space-x-2 overflow-x-auto pb-4 mb-4 scrollbar-hide">
-                  <button
-                    className={`inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium border transition-all duration-200 whitespace-nowrap ${
-                      selectedCategory === 'all' 
-                        ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white border-primary-600 shadow-soft' 
-                        : 'bg-surface text-text-primary border-neutral-200 hover:bg-surfaceHover hover:border-primary-300'
-                    }`}
-                    onClick={() => setSelectedCategory('all')}
-                    type="button"
-                  >
-                    <Icon name="grid" className="w-4 h-4" />
-                    All
-                  </button>
-                  {categories.map(category => (
+                {/* Categories - Compact Layout */}
+                <div className="mb-4">
+                  {/* First row - All button and first few categories */}
+                  <div className="flex space-x-1 sm:space-x-2 overflow-x-auto pb-2 scrollbar-hide">
                     <button
-                      key={category.id}
-                      className={`inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium border transition-all duration-200 whitespace-nowrap ${
-                        selectedCategory === category.name 
+                      className={`inline-flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium border transition-all duration-200 whitespace-nowrap flex-shrink-0 ${
+                        selectedCategory === 'all' 
                           ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white border-primary-600 shadow-soft' 
                           : 'bg-surface text-text-primary border-neutral-200 hover:bg-surfaceHover hover:border-primary-300'
                       }`}
-                      onClick={() => setSelectedCategory(category.name)}
+                      onClick={() => setSelectedCategory('all')}
                       type="button"
                     >
-                      <Icon name="category" className="w-4 h-4" />
-                      {category.name}
+                      <Icon name="grid" className="w-3 h-3 sm:w-4 sm:h-4" />
+                      All
                     </button>
-                  ))}
+                    {categories.slice(0, 4).map(category => (
+                      <button
+                        key={category.id}
+                        className={`inline-flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium border transition-all duration-200 whitespace-nowrap flex-shrink-0 ${
+                          selectedCategory === category.name 
+                            ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white border-primary-600 shadow-soft' 
+                            : 'bg-surface text-text-primary border-neutral-200 hover:bg-surfaceHover hover:border-primary-300'
+                        }`}
+                        onClick={() => setSelectedCategory(category.name)}
+                        type="button"
+                      >
+                        <Icon name="category" className="w-3 h-3 sm:w-4 sm:h-4" />
+                        <span className="hidden sm:inline">{category.name}</span>
+                        <span className="sm:hidden">{category.name.split(' ')[0]}</span>
+                      </button>
+                    ))}
+                  </div>
+                  
+                  {/* Second row - Remaining categories */}
+                  {categories.length > 4 && (
+                    <div className="flex space-x-1 sm:space-x-2 overflow-x-auto pb-2 scrollbar-hide">
+                      {categories.slice(4).map(category => (
+                        <button
+                          key={category.id}
+                          className={`inline-flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium border transition-all duration-200 whitespace-nowrap flex-shrink-0 ${
+                            selectedCategory === category.name 
+                              ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white border-primary-600 shadow-soft' 
+                              : 'bg-surface text-text-primary border-neutral-200 hover:bg-surfaceHover hover:border-primary-300'
+                          }`}
+                          onClick={() => setSelectedCategory(category.name)}
+                          type="button"
+                        >
+                          <Icon name="category" className="w-3 h-3 sm:w-4 sm:h-4" />
+                          <span className="hidden sm:inline">{category.name}</span>
+                          <span className="sm:hidden">{category.name.split(' ')[0]}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 
                 {/* Search */}
@@ -436,7 +464,7 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
             </div>
             
             {/* Order Summary Section */}
-            <div className="lg:w-96 w-full flex flex-col gap-6 mt-6 lg:mt-0">
+            <div className="lg:w-96 w-full flex flex-col gap-6 mt-6 lg:mt-0 lg:flex-shrink-0">
               <div className="bg-surface rounded-xl shadow-soft border border-neutral-100 p-6 lg:sticky lg:top-8 h-fit self-start w-full max-h-[80vh] overflow-y-auto flex flex-col">
                 <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2">
                   <Icon name="cart" className="w-5 h-5 text-primary-600" />

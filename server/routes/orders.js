@@ -258,7 +258,7 @@ router.post('/', [
           discount,
           total,
           customerNote,
-          businessSnapshot: businessSettings, // Store business settings at time of order
+          businessSnapshot: JSON.stringify(businessSettings), // Convert to JSON string
           status: 'PENDING' // Explicitly set status
         }
       });

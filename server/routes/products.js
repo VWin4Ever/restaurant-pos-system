@@ -51,7 +51,7 @@ router.get('/', requirePermission('products.view'), async (req, res) => {
       isDrink, 
       search, 
       page = 1, 
-      limit = 20,
+      limit = 50, // Increased from 20 to 50 to show more products per page
       sortBy = 'name',
       sortOrder = 'asc',
       minPrice,
@@ -125,6 +125,31 @@ router.get('/', requirePermission('products.view'), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get products'
+    });
+  }
+});
+
+// Get product statistics
+router.get('/stats', requirePermission('products.view'), async (req, res) => {
+  try {
+    const [total, active, inactive, drinks] = await Promise.all([
+      prisma.product.count(),
+      prisma.product.count({ where: { isActive: true } }),
+      prisma.product.count({ where: { isActive: false } }),
+      prisma.product.count({ where: { isDrink: true } })
+    ]);
+
+    res.json({
+      total,
+      active,
+      inactive,
+      drinks
+    });
+  } catch (error) {
+    console.error('Get product stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get product statistics'
     });
   }
 });

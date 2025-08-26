@@ -69,7 +69,7 @@ const Products = () => {
       setLoading(true);
       const params = new URLSearchParams({
         page: currentPage,
-        limit: 20,
+        limit: 50, // Increased from 20 to 50 to show more products per page
         sortBy,
         sortOrder
       });
@@ -81,23 +81,18 @@ const Products = () => {
       if (minPrice) params.append('minPrice', minPrice);
       if (maxPrice) params.append('maxPrice', maxPrice);
 
-      const [productsRes, categoriesRes] = await Promise.all([
+      const [productsRes, categoriesRes, statsRes] = await Promise.all([
         axios.get(`/api/products?${params}`),
-        axios.get('/api/categories')
+        axios.get('/api/categories'),
+        axios.get('/api/products/stats')
       ]);
       
       setProducts(productsRes.data.data);
       setTotalPages(productsRes.data.pagination.pages);
       setCategories(categoriesRes.data.data);
 
-      // Calculate statistics
-      const allProducts = productsRes.data.data;
-      setStats({
-        total: allProducts.length,
-        active: allProducts.filter(p => p.isActive).length,
-        inactive: allProducts.filter(p => !p.isActive).length,
-        drinks: allProducts.filter(p => p.isDrink).length
-      });
+      // Use accurate statistics from the stats endpoint
+      setStats(statsRes.data);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error('Failed to load data');
@@ -741,7 +736,7 @@ const Products = () => {
           <div className="px-6 py-4 border-t border-gray-200">
             <div className="flex items-center justify-between">
               <div className="text-sm text-gray-700">
-                Page {currentPage} of {totalPages}
+                Page {currentPage} of {totalPages} • Showing {products.length} of {stats.total} products
               </div>
               <div className="flex space-x-2">
                 <button
@@ -757,6 +752,32 @@ const Products = () => {
                   className="px-3 py-1 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
                 >
                   Next
+                </button>
+                <button
+                  onClick={() => {
+                    // Show all products by setting a very high limit
+                    const params = new URLSearchParams({
+                      page: 1,
+                      limit: 1000, // Show all products
+                      sortBy,
+                      sortOrder
+                    });
+                    if (searchTerm) params.append('search', searchTerm);
+                    if (selectedCategory) params.append('categoryId', selectedCategory);
+                    if (selectedType) params.append('isDrink', selectedType === 'drink');
+                    if (selectedStatus) params.append('status', selectedStatus);
+                    if (minPrice) params.append('minPrice', minPrice);
+                    if (maxPrice) params.append('maxPrice', maxPrice);
+                    
+                    axios.get(`/api/products?${params}`).then(response => {
+                      setProducts(response.data.data);
+                      setTotalPages(1);
+                      setCurrentPage(1);
+                    });
+                  }}
+                  className="px-3 py-1 text-sm bg-blue-500 text-white border border-blue-500 rounded-md hover:bg-blue-600"
+                >
+                  Show All
                 </button>
               </div>
             </div>
