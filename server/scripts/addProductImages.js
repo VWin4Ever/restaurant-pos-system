@@ -152,3 +152,22 @@ async function addProductImages() {
 
 addProductImages();
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

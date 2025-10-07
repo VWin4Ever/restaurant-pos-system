@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import LoadingSpinner from '../common/LoadingSpinner';
 import { useSettings } from '../../contexts/SettingsContext';
-import { useAuth } from '../../contexts/AuthContext';
+// Removed unused useAuth import
 import Icon from '../common/Icon';
 
 const schema = yup.object({
@@ -16,8 +16,8 @@ const schema = yup.object({
 }).required();
 
 const CreateOrder = ({ onClose, onOrderCreated }) => {
-  const { calculateTax, formatCurrency } = useSettings();
-  const { user, token } = useAuth();
+  const { calculateTax } = useSettings();
+  // Removed unused useAuth destructuring
   const [tables, setTables] = useState([]);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -33,18 +33,9 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
   const [orderConfirmation, setOrderConfirmation] = useState(null);
   const [totalAnim, setTotalAnim] = useState(false);
   const [editingDiscount, setEditingDiscount] = useState(false);
-  const [editingNote, setEditingNote] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-  const discountButtonRef = useRef(null);
-  const noteButtonRef = useRef(null);
+  // Removed unused variables: editingNote, isMobile, discountButtonRef, noteButtonRef
 
-  // Check mobile screen size
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+  // Removed mobile check as isMobile is not used
 
   const calculateSubtotal = () => {
     return orderItems.reduce((sum, item) => sum + item.subtotal, 0);
@@ -67,15 +58,11 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
   const {
     register,
     handleSubmit,
-    formState: { errors },
     watch,
-    setValue,
-    control
+    setValue
   } = useForm({
     resolver: yupResolver(schema)
   });
-
-  const selectedTableId = watch('tableId');
   const watchedDiscount = watch('discount', 0);
 
   useEffect(() => {
@@ -103,7 +90,10 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
         axios.get('/api/categories')
       ]);
 
-      setTables(tablesRes.data.data.filter(table => table.status === 'AVAILABLE' || table.status === 'RESERVED'));
+      setTables(tablesRes.data.data.filter(table => 
+        (table.status === 'AVAILABLE' || table.status === 'RESERVED') && 
+        !table.maintenance
+      ));
       setProducts(productsRes.data.data);
       setCategories(categoriesRes.data.data);
     } catch (error) {
@@ -138,7 +128,6 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
         subtotal: parseFloat(product.price)
       }]);
     }
-    toast.success(`${product.name} added to order!`);
   };
 
   const updateQuantity = (productId, newQuantity) => {
@@ -174,7 +163,6 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
         }))
       };
       const response = await axios.post('/api/orders', orderData);
-      toast.success('Order created successfully!');
       setOrderConfirmation({
         table: selectedTable,
         items: orderItems,
@@ -548,6 +536,10 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
                     <span className="font-medium text-text-primary">${calculateSubtotal().toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
+                    <span className="text-text-secondary">Tax</span>
+                    <span className="font-medium text-text-primary">${calculateTaxAmount().toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
                     {editingDiscount ? (
                       <input
                         type="number"
@@ -564,7 +556,6 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
                     ) : (
                       <button
                         type="button"
-                        ref={discountButtonRef}
                         className="text-text-secondary hover:text-primary-600 hover:underline transition-colors duration-200"
                         onClick={() => setEditingDiscount(true)}
                         aria-label="Edit discount"

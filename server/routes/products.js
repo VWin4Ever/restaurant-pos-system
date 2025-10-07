@@ -6,8 +6,45 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+// Product ID sequence tracking
+const SEQUENCE_FILE = path.join(__dirname, '../data/product_sequence.json');
+
+// Initialize sequence file if it doesn't exist
+function initializeSequence() {
+  if (!fs.existsSync(SEQUENCE_FILE)) {
+    const dir = path.dirname(SEQUENCE_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(SEQUENCE_FILE, JSON.stringify({ nextId: 1 }));
+  }
+}
+
+// Get next sequence number
+function getNextSequenceNumber() {
+  initializeSequence();
+  const data = JSON.parse(fs.readFileSync(SEQUENCE_FILE, 'utf8'));
+  const nextId = data.nextId;
+  data.nextId = nextId + 1;
+  fs.writeFileSync(SEQUENCE_FILE, JSON.stringify(data));
+  return nextId;
+}
+
 const router = express.Router();
 const prisma = new PrismaClient();
+
+// Helper function to generate next product ID
+async function generateNextProductId() {
+  try {
+    // Use sequence tracking for guaranteed unique IDs
+    const sequenceNumber = getNextSequenceNumber();
+    return `PROD${String(sequenceNumber).padStart(4, '0')}`;
+  } catch (error) {
+    console.error('Error generating product ID:', error);
+    // Fallback to timestamp-based ID
+    return `PROD${Date.now().toString().slice(-4)}`;
+  }
+}
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -43,82 +80,27 @@ const upload = multer({
   }
 });
 
-// Get all products with advanced filtering and sorting
+// Get all products (no pagination for local filtering)
 router.get('/', requirePermission('products.view'), async (req, res) => {
   try {
-    const { 
-      categoryId, 
-      isDrink, 
-      search, 
-      page = 1, 
-      limit = 50, // Increased from 20 to 50 to show more products per page
-      sortBy = 'name',
-      sortOrder = 'asc',
-      minPrice,
-      maxPrice,
-      status
-    } = req.query;
-    
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    const where = {};
-    
-    // Status filter
-    if (status === 'active') {
-      where.isActive = true;
-    } else if (status === 'inactive') {
-      where.isActive = false;
-    }
-    
-    // Category filter
-    if (categoryId) where.categoryId = parseInt(categoryId);
-    
-    // Drink/Food filter
-    if (isDrink !== undefined) where.isDrink = isDrink === 'true';
-    
-    // Search filter
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } }
-      ];
-    }
-    
-    // Price range filter
-    if (minPrice || maxPrice) {
-      where.price = {};
-      if (minPrice) where.price.gte = parseFloat(minPrice);
-      if (maxPrice) where.price.lte = parseFloat(maxPrice);
-    }
-
-    // Validate sort parameters
-    const allowedSortFields = ['name', 'price', 'createdAt', 'categoryId'];
-    const allowedSortOrders = ['asc', 'desc'];
-    
-    const validSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'name';
-    const validSortOrder = allowedSortOrders.includes(sortOrder.toLowerCase()) ? sortOrder.toLowerCase() : 'asc';
-
+    // Fetch all products for local filtering with orderItems count
     const products = await prisma.product.findMany({
-      where,
       include: {
-        category: true
+        category: true,
+        _count: {
+          select: {
+            orderItems: true
+          }
+        }
       },
-      orderBy: { [validSortBy]: validSortOrder },
-      skip,
-      take: parseInt(limit)
+      orderBy: {
+        name: 'asc'
+      }
     });
-
-    const total = await prisma.product.count({ where });
 
     res.json({
       success: true,
-      data: products,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / parseInt(limit))
-      }
+      data: products
     });
   } catch (error) {
     console.error('Get products error:', error);
@@ -132,18 +114,20 @@ router.get('/', requirePermission('products.view'), async (req, res) => {
 // Get product statistics
 router.get('/stats', requirePermission('products.view'), async (req, res) => {
   try {
-    const [total, active, inactive, drinks] = await Promise.all([
+    const [total, active, inactive, needStock, noStock] = await Promise.all([
       prisma.product.count(),
       prisma.product.count({ where: { isActive: true } }),
       prisma.product.count({ where: { isActive: false } }),
-      prisma.product.count({ where: { isDrink: true } })
+      prisma.product.count({ where: { needStock: true } }),
+      prisma.product.count({ where: { needStock: false } })
     ]);
 
     res.json({
       total,
       active,
       inactive,
-      drinks
+      needStock,
+      noStock
     });
   } catch (error) {
     console.error('Get product stats error:', error);
@@ -187,9 +171,7 @@ router.get('/:id', requirePermission('products.view'), async (req, res) => {
 // Create new product
 router.post('/', requirePermission('products.create'), upload.single('image'), async (req, res) => {
   try {
-
-
-    const { name, price, categoryId, isDrink, description } = req.body;
+    const { name, price, costPrice, categoryId, needStock, description } = req.body;
     let imageUrl = null;
 
     // Handle uploaded file
@@ -198,16 +180,30 @@ router.post('/', requirePermission('products.create'), upload.single('image'), a
     }
 
     // Basic validation
-    if (!name || !price || !categoryId) {
+    if (!name || !price || !costPrice || !categoryId) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: name, price, and categoryId are required'
+        message: 'Missing required fields: name, price, costPrice, and categoryId are required'
+      });
+    }
+
+    // Convert string values to appropriate types
+    const parsedPrice = parseFloat(price);
+    const parsedCostPrice = parseFloat(costPrice);
+    const parsedCategoryId = parseInt(categoryId);
+    // FIX: Properly parse boolean from FormData string
+    const parsedNeedStock = needStock === 'true' || needStock === true;
+
+    if (isNaN(parsedPrice) || isNaN(parsedCostPrice) || isNaN(parsedCategoryId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid numeric values for price, costPrice, or categoryId'
       });
     }
 
     // Check if category exists
     const category = await prisma.category.findUnique({
-      where: { id: parseInt(categoryId) }
+      where: { id: parsedCategoryId }
     });
 
     if (!category) {
@@ -217,34 +213,45 @@ router.post('/', requirePermission('products.create'), upload.single('image'), a
       });
     }
 
-    // Create product
-    console.log('Creating product with data:', {
-      name,
-      price,
-      categoryId: parseInt(categoryId),
-      isDrink: Boolean(isDrink),
-      description,
-      imageUrl
-    });
+    // Generate unique product ID
+    const productId = await generateNextProductId();
     
-    const product = await prisma.product.create({
-      data: {
-        name,
-        price,
-        categoryId: parseInt(categoryId),
-        isDrink: Boolean(isDrink),
-        description,
-        imageUrl
-      }
-    });
-    
+    // Create product with stock record for drinks
+    const product = await prisma.$transaction(async (tx) => {
+      // Create the product
+      const newProduct = await tx.product.create({
+        data: {
+          productId,
+          name,
+          price: parsedPrice,
+          costPrice: parsedCostPrice,
+          categoryId: parsedCategoryId,
+          needStock: parsedNeedStock,
+          description,
+          imageUrl
+        }
+      });
 
+      // Create stock record for products that need stock tracking
+      if (parsedNeedStock) {
+        await tx.stock.create({
+          data: {
+            productId: newProduct.id,
+            quantity: 0,
+            minStock: 10
+          }
+        });
+      }
+
+      return newProduct;
+    });
 
     // Get product with relations
     const productWithRelations = await prisma.product.findUnique({
       where: { id: product.id },
       include: {
-        category: true
+        category: true,
+        stock: true
       }
     });
 
@@ -255,9 +262,22 @@ router.post('/', requirePermission('products.create'), upload.single('image'), a
     });
   } catch (error) {
     console.error('Create product error:', error);
+    console.error('Error stack:', error.stack);
+    
+    // Handle specific Prisma errors
+    if (error.code === 'P2002') {
+      if (error.meta?.target?.includes('name')) {
+        return res.status(400).json({
+          success: false,
+          message: `Product with name "${req.body.name}" already exists. Please choose a different name.`
+        });
+      }
+    }
+    
     res.status(500).json({
       success: false,
-      message: 'Failed to create product'
+      message: 'Failed to create product',
+      error: error.message
     });
   }
 });
@@ -318,7 +338,7 @@ router.put('/:id', requirePermission('products.edit'), upload.single('image'), [
   body('name').notEmpty().withMessage('Product name is required'),
   body('price').isFloat({ min: 0 }).withMessage('Price must be a positive number'),
   body('categoryId').notEmpty().withMessage('Category ID is required'),
-  body('isDrink').optional(),
+  body('needStock').optional(),
   body('description').optional().isString()
 ], async (req, res) => {
   try {
@@ -331,9 +351,12 @@ router.put('/:id', requirePermission('products.edit'), upload.single('image'), [
       });
     }
 
-    const { name, price, categoryId, isDrink, description } = req.body;
+    const { name, price, costPrice, categoryId, needStock, description } = req.body;
     const productId = parseInt(req.params.id);
     let imageUrl = null;
+    
+    // FIX: Properly parse boolean from FormData string
+    const parsedNeedStock = needStock === 'true' || needStock === true;
 
     // Handle uploaded file
     if (req.file) {
@@ -364,19 +387,57 @@ router.put('/:id', requirePermission('products.edit'), upload.single('image'), [
       });
     }
 
-    const product = await prisma.product.update({
-      where: { id: productId },
-      data: {
-        name,
-        price,
-        categoryId: parseInt(categoryId),
-        isDrink: Boolean(isDrink),
-        description,
-        imageUrl
-      },
-      include: {
-        category: true
+    // FIX: Handle stock record creation/deletion when needStock changes
+    const product = await prisma.$transaction(async (tx) => {
+      // Update the product
+      const updatedProduct = await tx.product.update({
+        where: { id: productId },
+        data: {
+          name,
+          price,
+          costPrice: parseFloat(costPrice),
+          categoryId: parseInt(categoryId),
+          needStock: parsedNeedStock,
+          description,
+          imageUrl
+        },
+        include: {
+          category: true,
+          stock: true
+        }
+      });
+
+      // If needStock changed from false to true, create stock record
+      if (parsedNeedStock && !existingProduct.needStock && !updatedProduct.stock) {
+        await tx.stock.create({
+          data: {
+            productId: updatedProduct.id,
+            quantity: 0,
+            minStock: 10
+          }
+        });
       }
+
+      // If needStock changed from true to false, delete stock record
+      if (!parsedNeedStock && existingProduct.needStock && updatedProduct.stock) {
+        // Delete stock logs first
+        await tx.stockLog.deleteMany({
+          where: { stockId: updatedProduct.stock.id }
+        });
+        // Then delete stock
+        await tx.stock.delete({
+          where: { id: updatedProduct.stock.id }
+        });
+      }
+
+      // Return updated product with relations
+      return tx.product.findUnique({
+        where: { id: productId },
+        include: {
+          category: true,
+          stock: true
+        }
+      });
     });
 
     res.json({
@@ -402,7 +463,12 @@ router.delete('/:id', requirePermission('products.delete'), async (req, res) => 
     const product = await prisma.product.findUnique({
       where: { id: productId },
       include: {
-        orderItems: true
+        orderItems: true,
+        stock: {
+          include: {
+            stockLogs: true
+          }
+        }
       }
     });
 
@@ -421,9 +487,26 @@ router.delete('/:id', requirePermission('products.delete'), async (req, res) => 
       });
     }
 
-    // Perform hard delete
-    await prisma.product.delete({
-      where: { id: productId }
+    // FIX: Delete in correct order: stockLogs -> stock -> product
+    await prisma.$transaction(async (tx) => {
+      // Delete stock logs first if they exist
+      if (product.stock && product.stock.stockLogs && product.stock.stockLogs.length > 0) {
+        await tx.stockLog.deleteMany({
+          where: { stockId: product.stock.id }
+        });
+      }
+
+      // Then delete stock record if it exists
+      if (product.stock) {
+        await tx.stock.delete({
+          where: { id: product.stock.id }
+        });
+      }
+
+      // Finally delete the product
+      await tx.product.delete({
+        where: { id: productId }
+      });
     });
 
 
@@ -444,7 +527,7 @@ router.delete('/:id', requirePermission('products.delete'), async (req, res) => 
 // Export products to CSV
 router.get('/export/csv', requirePermission('products.export'), async (req, res) => {
   try {
-    const { categoryId, isDrink, status } = req.query;
+    const { categoryId, needStock, status } = req.query;
     
     const where = {};
     
@@ -455,7 +538,7 @@ router.get('/export/csv', requirePermission('products.export'), async (req, res)
     }
     
     if (categoryId) where.categoryId = parseInt(categoryId);
-    if (isDrink !== undefined) where.isDrink = isDrink === 'true';
+    if (needStock !== undefined) where.needStock = needStock === 'true';
 
     const products = await prisma.product.findMany({
       where,
@@ -466,16 +549,17 @@ router.get('/export/csv', requirePermission('products.export'), async (req, res)
     });
 
     // Create CSV content
-    const csvHeader = 'ID,Name,Description,Price,Category,Type,Status,Image URL,Created At\n';
+    const csvHeader = 'ID,Name,Description,Price,Cost Price,Category,Need Stock,Status,Image URL,Created At\n';
     const csvRows = products.map(product => {
       const imageUrl = product.imageUrl || '';
       return [
-        product.id,
+        product.productId,
         `"${product.name}"`,
         `"${product.description || ''}"`,
         product.price,
+        product.costPrice,
         `"${product.category.name}"`,
-        product.isDrink ? 'Drink' : 'Food',
+        product.needStock ? 'Yes' : 'No',
         product.isActive ? 'Active' : 'Inactive',
         `"${imageUrl}"`,
         product.createdAt.toISOString().split('T')[0]
@@ -532,17 +616,32 @@ router.post('/import/csv', requirePermission('products.import'), async (req, res
             continue;
           }
 
+          // Generate product ID
+          const productId = await generateNextProductId();
+          
           // Create product
           const newProduct = await tx.product.create({
             data: {
+              productId,
               name: product.name,
               description: product.description || '',
               price: parseFloat(product.price),
               categoryId: parseInt(product.categoryId),
-              isDrink: product.isDrink === 'true' || product.isDrink === true,
+              needStock: product.needStock === 'true' || product.needStock === true,
               imageUrl: product.imageUrl || null
             }
           });
+
+          // Create stock record for products that need stock tracking
+          if (product.needStock === 'true' || product.needStock === true) {
+            await tx.stock.create({
+              data: {
+                productId: newProduct.id,
+                quantity: 0,
+                minStock: 10
+              }
+            });
+          }
 
           imported.push(newProduct);
         } catch (error) {

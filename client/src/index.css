@@ -91,19 +91,19 @@
 
   /* Enhanced Status Badges */
   .table-status {
-    @apply px-2 sm:px-3 py-1 sm:py-1.5 text-xs font-semibold rounded-full shadow-soft;
+    @apply px-6 sm:px-8 py-3 sm:py-4 text-sm font-semibold rounded-full shadow-soft min-w-[120px] text-center;
   }
   
   .table-status-available {
-    @apply table-status bg-success text-white border border-success;
+    @apply table-status bg-green-500 text-white border border-green-500;
   }
   
   .table-status-occupied {
-    @apply table-status bg-warning text-white border border-warning;
+    @apply table-status bg-orange-500 text-white border border-orange-500;
   }
   
   .table-status-reserved {
-    @apply table-status bg-primary-600 text-white border border-primary-600;
+    @apply table-status bg-blue-500 text-white border border-blue-500;
   }
 
   .table-status-out-of-service {
@@ -228,6 +228,28 @@
   /* Sidebar */
   .sidebar {
     @apply bg-gradient-to-b from-primary-800 to-primary-900 text-white;
+  }
+
+  /* Collapsed sidebar enhancements */
+  .sidebar-collapsed {
+    @apply shadow-xl border-r border-primary-700/50;
+  }
+
+  .sidebar-collapsed .icon-container {
+    @apply shadow-lg border border-white/10;
+  }
+
+  .sidebar-collapsed .icon-container:hover {
+    @apply shadow-xl border-white/20 transform scale-110;
+  }
+
+  /* Reports menu clickable indicator in collapsed mode */
+  .sidebar-collapsed .reports-clickable {
+    @apply border-2 border-transparent;
+  }
+
+  .sidebar-collapsed .reports-clickable:hover {
+    @apply border-white/30 shadow-lg;
   }
 
   /* Header */

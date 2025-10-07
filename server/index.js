@@ -15,13 +15,24 @@ const orderRoutes = require('./routes/orders');
 const stockRoutes = require('./routes/stock');
 const reportRoutes = require('./routes/reports');
 const settingsRoutes = require('./routes/settings');
+const shiftRoutes = require('./routes/shifts');
+const shiftLogRoutes = require('./routes/shiftLogs');
+const migrateSettings = require('./scripts/migrateSettings');
+const { runAutomatedBackup } = require('./scripts/automatedBackup');
 
 const { authenticateToken, authorizeRole } = require('./middleware/auth');
 const errorHandler = require('./middleware/errorHandler');
+const { checkShiftEnd } = require('./middleware/shiftEndHandler');
 
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
+
+// Global backup interval tracker
+let backupIntervalId = null;
+
+// Trust proxy for rate limiting
+app.set('trust proxy', 1);
 
 // Initialize WebSocket server
 const WebSocketServer = require('./websocket');
@@ -41,7 +52,7 @@ app.use(helmet({
 // Rate limiting
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'development' ? 1000 : (parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100), // More lenient in development
+  max: process.env.NODE_ENV === 'development' ? 10000 : (parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100), // Much more lenient in development
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use(limiter);
@@ -55,7 +66,12 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
       'https://*.netlify.com',
       'https://restaurantposmyv.netlify.app'
     ].filter(Boolean) // Remove undefined values
-  : ['http://localhost:3000', 'http://localhost:3001'];
+  : [
+      'http://localhost:3000', 
+      'http://localhost:3001',
+      'http://192.168.18.62:3000',
+      'http://192.168.18.62:3001'
+    ];
 
 app.use(cors({
   origin: function (origin, callback) {
@@ -70,10 +86,13 @@ app.use(cors({
     })) {
       callback(null, true);
     } else {
+      console.log(`CORS: Blocking origin ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 // Body parsing middleware
@@ -103,15 +122,17 @@ app.get('/api/health', (req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 
-// Protected routes
+// Protected routes with shift end checking
 app.use('/api/users', authenticateToken, authorizeRole(['ADMIN']), userRoutes);
-app.use('/api/tables', authenticateToken, tableRoutes);
-app.use('/api/categories', authenticateToken, categoryRoutes);
-app.use('/api/products', authenticateToken, productRoutes);
-app.use('/api/orders', authenticateToken, orderRoutes);
-app.use('/api/stock', authenticateToken, authorizeRole(['ADMIN']), stockRoutes);
-app.use('/api/reports', authenticateToken, reportRoutes);
-app.use('/api/settings', authenticateToken, authorizeRole(['ADMIN']), settingsRoutes);
+app.use('/api/tables', authenticateToken, checkShiftEnd, tableRoutes);
+app.use('/api/categories', authenticateToken, checkShiftEnd, categoryRoutes);
+app.use('/api/products', authenticateToken, checkShiftEnd, productRoutes);
+app.use('/api/orders', authenticateToken, checkShiftEnd, orderRoutes);
+app.use('/api/stock', authenticateToken, authorizeRole(['ADMIN']), checkShiftEnd, stockRoutes);
+app.use('/api/reports', authenticateToken, checkShiftEnd, reportRoutes);
+app.use('/api/settings', authenticateToken, checkShiftEnd, settingsRoutes); // Allow cashiers to access basic settings
+app.use('/api/shifts', authenticateToken, shiftRoutes);
+app.use('/api/shift-logs', authenticateToken, shiftLogRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
@@ -124,13 +145,111 @@ app.use('*', (req, res) => {
   });
 });
 
-// Start server
-server.listen(PORT, () => {
-  console.log(`🚀 Restaurant POS Server running on port ${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`🔌 WebSocket server ready on ws://localhost:${PORT}`);
-});
+// Auto-initialize settings on server startup
+async function startServer() {
+  try {
+    // Initialize settings first
+    console.log('🔧 Initializing settings...');
+    const settingsResult = await migrateSettings();
+    
+    if (settingsResult.success) {
+      console.log(`✅ Settings initialization: ${settingsResult.message}`);
+    } else {
+      console.log(`⚠️ Settings initialization warning: ${settingsResult.message}`);
+    }
+    
+    // Setup auto-backup if enabled
+    await setupAutoBackup();
+    
+    // Start the server
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Restaurant POS Server running on port ${PORT}`);
+      console.log(`📊 Environment: ${process.env.NODE_ENV}`);
+      console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+      console.log(`🌐 Network access: http://192.168.18.62:${PORT}/api/health`);
+      console.log(`🔌 WebSocket server ready on ws://localhost:${PORT}`);
+    });
+    
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Clear existing backup interval
+function clearBackupInterval() {
+  if (backupIntervalId) {
+    clearInterval(backupIntervalId);
+    backupIntervalId = null;
+    console.log('🛑 Cleared existing backup interval');
+  }
+}
+
+// Setup auto-backup based on settings
+async function setupAutoBackup() {
+  try {
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    
+    // Clear any existing backup interval
+    clearBackupInterval();
+    
+    // Get system settings
+    const systemSettings = await prisma.settings.findUnique({
+      where: { category: 'system' }
+    });
+    
+    if (systemSettings) {
+      const settings = JSON.parse(systemSettings.data);
+      
+      if (settings.enableAutoBackup && process.env.NODE_ENV !== 'development') {
+        console.log(`🔄 Auto-backup enabled: ${settings.backupFrequency}`);
+        
+        // Schedule backup based on frequency
+        const intervals = {
+          daily: 24 * 60 * 60 * 1000,    // 24 hours
+          weekly: 7 * 24 * 60 * 60 * 1000, // 7 days
+          monthly: 30 * 24 * 60 * 60 * 1000 // 30 days
+        };
+        
+        const interval = intervals[settings.backupFrequency] || intervals.daily;
+        
+        // Schedule first backup after 5 minutes, then repeat
+        setTimeout(() => {
+          console.log('🔄 Running scheduled backup...');
+          runAutomatedBackup().catch(error => {
+            console.error('❌ Scheduled backup failed:', error);
+          });
+          
+          // Set up recurring backups
+          backupIntervalId = setInterval(() => {
+            console.log('🔄 Running scheduled backup...');
+            runAutomatedBackup().catch(error => {
+              console.error('❌ Scheduled backup failed:', error);
+            });
+          }, interval);
+        }, 300000); // 5 minute delay to prevent immediate backup spam
+        
+        console.log(`⏰ Auto-backup scheduled every ${settings.backupFrequency}`);
+      } else {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('📴 Auto-backup disabled in development mode');
+        } else {
+          console.log('📴 Auto-backup disabled');
+        }
+      }
+    }
+    
+    await prisma.$disconnect();
+  } catch (error) {
+    console.error('⚠️ Failed to setup auto-backup:', error);
+  }
+}
+
+// Export functions for use by other modules
+global.restartAutoBackup = setupAutoBackup;
+
+startServer();
 
 // Make WebSocket server available globally
 global.wss = wss;

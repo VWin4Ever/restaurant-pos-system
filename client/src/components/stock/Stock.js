@@ -33,6 +33,9 @@ const Stock = () => {
   const [sortOrder, setSortOrder] = useState('asc');
   const [showFilters, setShowFilters] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ open: false });
+  
+  // Quick filter state - synchronized with selectedStatus
+  const [quickFilter, setQuickFilter] = useState('');
 
   const {
     register,
@@ -49,7 +52,19 @@ const Stock = () => {
 
   useEffect(() => {
     applyFilters();
-  }, [stockItems, searchTerm, selectedStatus, selectedCategory, sortBy, sortOrder]);
+  }, [stockItems, searchTerm, selectedStatus, selectedCategory, sortBy, sortOrder, quickFilter]);
+
+  // Synchronize selectedStatus with quickFilter
+  useEffect(() => {
+    if (selectedStatus === 'good' || selectedStatus === 'low' || selectedStatus === 'out') {
+      setQuickFilter(selectedStatus);
+    } else if (selectedStatus === '') {
+      // Only clear quickFilter if it's a status-related filter
+      if (quickFilter === 'good' || quickFilter === 'low' || quickFilter === 'out') {
+        setQuickFilter('');
+      }
+    }
+  }, [selectedStatus]);
 
   const fetchStockData = async () => {
     try {
@@ -71,6 +86,14 @@ const Stock = () => {
 
   const applyFilters = () => {
     let filtered = [...stockItems];
+
+    // Quick filter
+    if (quickFilter) {
+      filtered = filtered.filter(item => {
+        const status = getStockStatus(item.quantity, item.minStock);
+        return status.status === quickFilter;
+      });
+    }
 
     // Search filter
     if (searchTerm) {
@@ -139,6 +162,7 @@ const Stock = () => {
     setSelectedCategory('');
     setSortBy('productName');
     setSortOrder('asc');
+    setQuickFilter('');
   };
 
   const getSortIcon = (field) => {
@@ -237,13 +261,54 @@ const Stock = () => {
     return { status: 'good', color: 'green', text: 'In Stock' };
   };
 
-  // Calculate statistics for drinks only
-  const stats = {
-    total: filteredStockItems.length,
-    inStock: filteredStockItems.filter(item => item.quantity > item.minStock).length,
-    lowStock: filteredStockItems.filter(item => item.quantity <= item.minStock && item.quantity > 0).length,
-    outOfStock: filteredStockItems.filter(item => item.quantity <= 0).length
+  // Calculate statistics with exclusive filtering
+  const getFilteredStats = () => {
+    if (!quickFilter) {
+      return {
+        total: filteredStockItems.length,
+        inStock: filteredStockItems.filter(item => item.quantity > item.minStock).length,
+        lowStock: filteredStockItems.filter(item => item.quantity <= item.minStock && item.quantity > 0).length,
+        outOfStock: filteredStockItems.filter(item => item.quantity <= 0).length
+      };
+    }
+
+    // When a quick filter is active, show exclusive counts
+    const inStockItems = filteredStockItems.filter(item => item.quantity > item.minStock);
+    const lowStockItems = filteredStockItems.filter(item => item.quantity <= item.minStock && item.quantity > 0);
+    const outOfStockItems = filteredStockItems.filter(item => item.quantity <= 0);
+
+    if (quickFilter === 'good') {
+      return {
+        total: inStockItems.length,
+        inStock: inStockItems.length,
+        lowStock: 0,
+        outOfStock: 0
+      };
+    } else if (quickFilter === 'low') {
+      return {
+        total: lowStockItems.length,
+        inStock: 0,
+        lowStock: lowStockItems.length,
+        outOfStock: 0
+      };
+    } else if (quickFilter === 'out') {
+      return {
+        total: outOfStockItems.length,
+        inStock: 0,
+        lowStock: 0,
+        outOfStock: outOfStockItems.length
+      };
+    }
+
+    return {
+      total: stockItems.length,
+      inStock: stockItems.filter(item => item.quantity > item.minStock).length,
+      lowStock: stockItems.filter(item => item.quantity <= item.minStock && item.quantity > 0).length,
+      outOfStock: stockItems.filter(item => item.quantity <= 0).length
+    };
   };
+
+  const stats = getFilteredStats();
 
   if (loading) {
     return <LoadingSpinner />;
@@ -255,7 +320,8 @@ const Stock = () => {
       <div className="card-gradient p-4 sm:p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
         {/* Status Cards Row */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
+          {/* Total Drinks - Not clickable */}
+          <div className="p-6 rounded-xl shadow-lg text-white" style={{ background: 'linear-gradient(to right, #53B312, #4A9E0F)' }}>
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90">Total Drinks</p>
@@ -265,7 +331,18 @@ const Stock = () => {
             </div>
           </div>
 
-          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
+          {/* In Stock - Clickable filter */}
+          <button 
+            onClick={() => {
+              const newFilter = quickFilter === 'good' ? '' : 'good';
+              setQuickFilter(newFilter);
+              setSelectedStatus(newFilter);
+            }}
+            className={`bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white hover:from-green-600 hover:to-green-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-green-300 focus:outline-none ${
+              quickFilter === 'good' ? 'ring-4 ring-green-300 scale-105' : ''
+            }`}
+            title={quickFilter === 'good' ? 'Click to show all stock items' : 'Click to filter and show only items in stock'}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90">In Stock</p>
@@ -273,9 +350,20 @@ const Stock = () => {
               </div>
               <div className="text-4xl">✅</div>
             </div>
-          </div>
+          </button>
 
-          <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white">
+          {/* Low Stock - Clickable filter */}
+          <button 
+            onClick={() => {
+              const newFilter = quickFilter === 'low' ? '' : 'low';
+              setQuickFilter(newFilter);
+              setSelectedStatus(newFilter);
+            }}
+            className={`bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white hover:from-orange-600 hover:to-orange-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-orange-300 focus:outline-none ${
+              quickFilter === 'low' ? 'ring-4 ring-orange-300 scale-105' : ''
+            }`}
+            title={quickFilter === 'low' ? 'Click to show all stock items' : 'Click to filter and show only items with low stock'}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90">Low Stock</p>
@@ -283,9 +371,20 @@ const Stock = () => {
               </div>
               <div className="text-4xl">⚠️</div>
             </div>
-          </div>
+          </button>
 
-          <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-xl shadow-lg text-white">
+          {/* Out of Stock - Clickable filter */}
+          <button 
+            onClick={() => {
+              const newFilter = quickFilter === 'out' ? '' : 'out';
+              setQuickFilter(newFilter);
+              setSelectedStatus(newFilter);
+            }}
+            className={`bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-xl shadow-lg text-white hover:from-red-600 hover:to-red-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-red-300 focus:outline-none ${
+              quickFilter === 'out' ? 'ring-4 ring-red-300 scale-105' : ''
+            }`}
+            title={quickFilter === 'out' ? 'Click to show all stock items' : 'Click to filter and show only items out of stock'}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90">Out of Stock</p>
@@ -293,7 +392,7 @@ const Stock = () => {
               </div>
               <div className="text-4xl">🚫</div>
             </div>
-          </div>
+          </button>
         </div>
 
         {/* Controls Row */}
@@ -388,7 +487,7 @@ const Stock = () => {
           </div>
 
           {/* Clear Filters */}
-          {(searchTerm || selectedStatus || selectedCategory || sortBy !== 'productName' || sortOrder !== 'asc') && (
+          {(searchTerm || selectedStatus || selectedCategory || sortBy !== 'productName' || sortOrder !== 'asc' || quickFilter) && (
             <div className="mt-4">
               <button
                 onClick={clearFilters}
@@ -515,7 +614,7 @@ const Stock = () => {
                       <div className="text-4xl mb-4">🥤</div>
                       <div className="text-lg font-medium mb-2">No drink stock found</div>
                       <div className="text-sm">
-                        {searchTerm || selectedStatus || selectedCategory 
+                        {searchTerm || selectedStatus || selectedCategory || quickFilter
                           ? 'Try adjusting your search or filters'
                           : 'No drink stock available. Add drink products to start managing inventory.'
                         }

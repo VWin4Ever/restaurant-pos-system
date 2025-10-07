@@ -6,6 +6,8 @@ import SalesReports from './SalesReports';
 import StaffReports from './StaffReports';
 import InventoryReports from './InventoryReports';
 import FinancialReports from './FinancialReports';
+import ComparativeReports from './ComparativeReports';
+import { useWebSocket } from '../../services/websocket';
 
 const Reports = () => {
   const [activeTab, setActiveTab] = useState('overview');
@@ -16,6 +18,10 @@ const Reports = () => {
     endDate: ''
   });
   const [quickStats, setQuickStats] = useState({});
+  const [lastUpdate, setLastUpdate] = useState(new Date());
+
+  // WebSocket connection for real-time updates
+  const { socket, isConnected } = useWebSocket();
 
   // Simplified, restaurant-focused tabs
   const tabs = [
@@ -40,7 +46,7 @@ const Reports = () => {
     { 
       id: 'inventory', 
       name: '📦 Inventory', 
-      description: 'Stock levels and wastage tracking',
+      description: 'Stock levels and inventory management',
       color: 'bg-red-500'
     },
     { 
@@ -48,6 +54,12 @@ const Reports = () => {
       name: '💳 Financial', 
       description: 'Tax, profit, and end-of-day reports',
       color: 'bg-purple-500'
+    },
+    { 
+      id: 'comparative', 
+      name: '📈 Comparative', 
+      description: 'Period-over-period analysis',
+      color: 'bg-indigo-500'
     }
   ];
 
@@ -66,20 +78,71 @@ const Reports = () => {
     fetchQuickStats();
   }, [dateRange, customDateRange]);
 
+  // Real-time updates via WebSocket
+  useEffect(() => {
+    if (socket && isConnected) {
+      const handleOrderUpdate = (data) => {
+        // Refresh stats when orders are updated
+        if (data.type === 'order_created' || data.type === 'order_updated' || data.type === 'order_completed') {
+          fetchQuickStats();
+          setLastUpdate(new Date());
+        }
+      };
+
+      const handleTableUpdate = (data) => {
+        // Refresh stats when table status changes
+        if (data.type === 'table_updated') {
+          fetchQuickStats();
+          setLastUpdate(new Date());
+        }
+      };
+
+      socket.on('order_update', handleOrderUpdate);
+      socket.on('table_update', handleTableUpdate);
+
+      return () => {
+        socket.off('order_update', handleOrderUpdate);
+        socket.off('table_update', handleTableUpdate);
+      };
+    }
+  }, [socket, isConnected]);
+
   const fetchQuickStats = useCallback(async () => {
     try {
+      setLoading(true);
       const params = new URLSearchParams();
       if (dateRange === 'custom') {
+        if (!customDateRange.startDate || !customDateRange.endDate) {
+          throw new Error('Please select both start and end dates for custom range');
+        }
         params.append('startDate', customDateRange.startDate);
         params.append('endDate', customDateRange.endDate);
       } else {
         params.append('range', dateRange);
       }
 
-      const response = await axios.get(`/api/reports/dashboard?${params}`);
-      setQuickStats(response.data.data);
+      const response = await axios.get(`/api/reports/dashboard?${params}`, {
+        timeout: 10000 // 10 second timeout
+      });
+      
+      if (response.data.success) {
+        setQuickStats(response.data.data);
+      } else {
+        throw new Error(response.data.message || 'Failed to fetch dashboard data');
+      }
     } catch (error) {
       console.error('Failed to fetch quick stats:', error);
+      if (error.code === 'ECONNABORTED') {
+        toast.error('Request timeout. Please try again.');
+      } else if (error.response?.status === 403) {
+        toast.error('You do not have permission to view reports.');
+      } else if (error.response?.status >= 500) {
+        toast.error('Server error. Please try again later.');
+      } else {
+        toast.error(error.message || 'Failed to load dashboard data');
+      }
+    } finally {
+      setLoading(false);
     }
   }, [dateRange, customDateRange]);
 
@@ -237,6 +300,8 @@ const Reports = () => {
         return <InventoryReports {...reportProps} />;
       case 'financial':
         return <FinancialReports {...reportProps} />;
+      case 'comparative':
+        return <ComparativeReports {...reportProps} />;
       default:
         return renderOverview();
     }
@@ -292,6 +357,11 @@ const Reports = () => {
             <div className="text-sm text-gray-600 bg-gray-100 px-3 py-2 rounded-lg">
               Showing: <span className="font-medium">{getDateRangeLabel()}</span>
             </div>
+            {isConnected && (
+              <div className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded">
+                🔴 Live • Updated {lastUpdate.toLocaleTimeString()}
+              </div>
+            )}
           </div>
         </div>
       </div>

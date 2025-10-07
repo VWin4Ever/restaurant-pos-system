@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import LoadingSpinner from '../common/LoadingSpinner';
 import CreateOrder from './CreateOrder';
 import EditOrder from './EditOrder';
 import OrderFilters from './OrderFilters';
 import InvoiceModal from './InvoiceModal';
-import debounce from 'lodash.debounce';
+import PaymentPage from './PaymentPage';
 import ConfirmDialog from '../common/ConfirmDialog';
 import websocketService from '../../services/websocket';
 import Icon from '../common/Icon';
@@ -21,32 +20,28 @@ const OrdersSkeleton = ({ rows = 5 }) => (
 );
 
 const Orders = () => {
-  // Helper function to get today's date in YYYY-MM-DD format (UTC)
-  const getTodayDate = () => {
-    const today = new Date();
-    // Use UTC to avoid timezone issues
-    const year = today.getUTCFullYear();
-    const month = String(today.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(today.getUTCDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
 
-  const [orders, setOrders] = useState([]);
+  const [allOrders, setAllOrders] = useState([]); // Store all orders for client-side filtering
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [showPaymentPage, setShowPaymentPage] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [selectedOrders, setSelectedOrders] = useState([]);
-  const [showTodayOnly, setShowTodayOnly] = useState(true); // New state for toggle
-  const [filters, setFilters] = useState({
-    status: '',
-    tableId: '',
-    startDate: '', // Don't filter by date by default
-    endDate: '',   // Don't filter by date by default
-    search: ''
-  });
+  const [showTodayOnly] = useState(true); // New state for toggle
+  
+  // Filter states (similar to Products)
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('');
+  const [selectedTable, setSelectedTable] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [timeFilter, setTimeFilter] = useState(''); // New time filter state
+  const [sortBy] = useState('createdAt');
+  const [sortOrder] = useState('desc');
+  
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 20,
@@ -56,53 +51,156 @@ const Orders = () => {
   const [confirmDialog, setConfirmDialog] = useState({ open: false });
   const [isMobile, setIsMobile] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [dateRange, setDateRange] = useState('all');
 
-  // Helper to get date range for filter (UTC)
-  const getDateRange = (range) => {
-    const today = new Date();
-    let startDate = '', endDate = '';
-    if (range === 'today') {
-      startDate = endDate = getTodayDate();
-    } else if (range === 'week') {
-      // Get the start of the week (Sunday) in UTC
-      const dayOfWeek = today.getUTCDay();
-      const startOfWeek = new Date(today);
-      startOfWeek.setUTCDate(today.getUTCDate() - dayOfWeek);
-      
-      // Get the end of the week (Saturday) in UTC
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setUTCDate(startOfWeek.getUTCDate() + 6);
-      
-      startDate = startOfWeek.toISOString().slice(0, 10);
-      endDate = endOfWeek.toISOString().slice(0, 10);
-    } else if (range === 'month') {
-      const y = today.getUTCFullYear();
-      const m = today.getUTCMonth();
-      const startOfMonth = new Date(Date.UTC(y, m, 1));
-      const endOfMonth = new Date(Date.UTC(y, m + 1, 0));
-      startDate = startOfMonth.toISOString().slice(0, 10);
-      endDate = endOfMonth.toISOString().slice(0, 10);
-    } else if (range === 'all') {
-      startDate = '';
-      endDate = '';
-    } else {
-      startDate = '';
-      endDate = '';
+
+
+  // Helper function to get date ranges for time filters
+  const getTimeFilterRange = (filter) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    switch (filter) {
+      case 'today':
+        return {
+          start: today,
+          end: new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1)
+        };
+      case 'thisWeek':
+        const startOfWeek = new Date(today);
+        startOfWeek.setDate(today.getDate() - today.getDay());
+        return {
+          start: startOfWeek,
+          end: new Date(startOfWeek.getTime() + 7 * 24 * 60 * 60 * 1000 - 1)
+        };
+      case 'thisMonth':
+        return {
+          start: new Date(now.getFullYear(), now.getMonth(), 1),
+          end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+        };
+      case 'thisYear':
+        return {
+          start: new Date(now.getFullYear(), 0, 1),
+          end: new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999)
+        };
+      default:
+        return null;
     }
-    return { startDate, endDate };
   };
 
-  // Update filters when dateRange changes
-  useEffect(() => {
-    const { startDate, endDate } = getDateRange(dateRange);
-    setFilters(prev => ({ ...prev, startDate, endDate }));
+  // Client-side filtering logic (similar to Products)
+  const filteredOrders = allOrders.filter(order => {
+    // Search filter
+    const matchesSearch = !searchTerm || 
+      order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // Status filter
+    const matchesStatus = !selectedStatus || order.status === selectedStatus;
+    
+    // Table filter
+    const matchesTable = !selectedTable || order.tableId === parseInt(selectedTable);
+    
+    // Date range filter
+    const orderDate = new Date(order.createdAt);
+    const matchesStartDate = !startDate || orderDate >= new Date(startDate + 'T00:00:00.000Z');
+    const matchesEndDate = !endDate || orderDate <= new Date(endDate + 'T23:59:59.999Z');
+    
+    // Time filter
+    let matchesTimeFilter = true;
+    if (timeFilter) {
+      const timeRange = getTimeFilterRange(timeFilter);
+      if (timeRange) {
+        matchesTimeFilter = orderDate >= timeRange.start && orderDate <= timeRange.end;
+      }
+    }
+    
+    return matchesSearch && matchesStatus && matchesTable && matchesStartDate && matchesEndDate && matchesTimeFilter;
+  }).sort((a, b) => {
+    // Local sorting
+    let aValue, bValue;
+    
+    switch (sortBy) {
+      case 'orderNumber':
+        aValue = a.orderNumber.toLowerCase();
+        bValue = b.orderNumber.toLowerCase();
+        break;
+      case 'total':
+        aValue = parseFloat(a.total);
+        bValue = parseFloat(b.total);
+        break;
+      case 'createdAt':
+        aValue = new Date(a.createdAt);
+        bValue = new Date(b.createdAt);
+        break;
+      case 'status':
+        aValue = a.status;
+        bValue = b.status;
+        break;
+      default:
+        aValue = new Date(a.createdAt);
+        bValue = new Date(b.createdAt);
+    }
+    
+    if (sortOrder === 'asc') {
+      return aValue > bValue ? 1 : -1;
+    } else {
+      return aValue < bValue ? 1 : -1;
+    }
+  });
+
+  // Apply pagination to filtered results
+  const paginatedOrders = filteredOrders.slice(
+    (pagination.page - 1) * pagination.limit,
+    pagination.page * pagination.limit
+  );
+
+  // Calculate pagination metadata directly
+  const paginationMetadata = {
+    total: filteredOrders.length,
+    pages: Math.ceil(filteredOrders.length / pagination.limit)
+  };
+
+  // Handle search term changes
+  const handleSearchChange = (value) => {
+    setSearchTerm(value);
     setPagination(prev => ({ ...prev, page: 1 }));
-  }, [dateRange]);
+  };
+
+  // Get current time filter display text
+  const getTimeFilterDisplay = () => {
+    switch (timeFilter) {
+      case 'today':
+        return 'Today';
+      case 'thisWeek':
+        return 'This Week';
+      case 'thisMonth':
+        return 'This Month';
+      case 'thisYear':
+        return 'This Year';
+      default:
+        return 'All Time';
+    }
+  };
+
+  // Get current time filter description for filters panel
+  const getTimeFilterDescription = () => {
+    const today = new Date();
+    switch (timeFilter) {
+      case 'today':
+        return `Showing orders for today (${today.toLocaleDateString()})`;
+      case 'thisWeek':
+        return `Showing orders for this week (${today.toLocaleDateString()})`;
+      case 'thisMonth':
+        return `Showing orders for this month (${today.toLocaleDateString()})`;
+      case 'thisYear':
+        return `Showing orders for this year (${today.toLocaleDateString()})`;
+      default:
+        return 'Showing all orders';
+    }
+  };
 
   useEffect(() => {
     fetchOrders();
-  }, [filters, pagination.page]);
+  }, []);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -125,40 +223,13 @@ const Orders = () => {
     };
   }, []);
 
-  // Function to toggle between today's orders and all orders
-  const toggleTodayOnly = () => {
-    setShowTodayOnly(!showTodayOnly);
-    if (!showTodayOnly) {
-      // Switch to today's orders
-      const todayDate = getTodayDate();
-      setFilters(prev => ({
-        ...prev,
-        startDate: todayDate,
-        endDate: todayDate
-      }));
-    } else {
-      // Switch to all orders
-      setFilters(prev => ({
-        ...prev,
-        startDate: '',
-        endDate: ''
-      }));
-    }
-    setPagination(prev => ({ ...prev, page: 1 })); // Reset to first page
-  };
 
   const fetchOrders = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        page: pagination.page,
-        limit: pagination.limit,
-        ...filters
-      });
-
-      const response = await axios.get(`/api/orders?${params}`);
-      setOrders(response.data.data);
-      setPagination(response.data.pagination);
+      // Fetch all orders without pagination for client-side filtering
+      const response = await axios.get('/api/orders?limit=1000');
+      setAllOrders(response.data.data);
     } catch (error) {
       console.error('Failed to fetch orders:', error);
       toast.error(error.response?.data?.message || 'Failed to load orders');
@@ -167,15 +238,6 @@ const Orders = () => {
     }
   };
 
-  // Helper to fetch and update selectedOrder
-  const fetchAndSetSelectedOrder = async (orderId) => {
-    try {
-      const response = await axios.get(`/api/orders/${orderId}`);
-      setSelectedOrder(response.data.data);
-    } catch (error) {
-      toast.error('Failed to refresh order details');
-    }
-  };
 
   // Helper to show confirmation modal and return a promise
   const showConfirm = ({ title, message, confirmText, cancelText, icon, type = 'warning' }) => {
@@ -200,31 +262,15 @@ const Orders = () => {
     });
   };
 
-  const handlePayment = async (orderId) => {
-    const confirmed = await showConfirm({
-      title: 'Confirm Payment',
-      message: 'Are you sure you want to process payment for this order?',
-      confirmText: 'Yes, Pay',
-      cancelText: 'No',
-      type: 'success'
-    });
-    if (!confirmed) return;
-    setActionLoading(true);
-    try {
-      await axios.patch(`/api/orders/${orderId}/pay`, { paymentMethod: 'CARD' });
-      toast.success('Payment processed successfully!');
-      fetchOrders();
-      setSelectedOrder(null); // Close modal after payment
-    } catch (error) {
-      console.error('Payment failed:', error);
-      if (error.response?.data?.errors) {
-        toast.error(error.response.data.errors.map(e => e.msg).join(', '));
-      } else {
-        toast.error(error.response?.data?.message || 'Payment failed');
-      }
-    } finally {
-      setActionLoading(false);
-    }
+  const handlePayment = (order) => {
+    setSelectedOrder(order);
+    setShowPaymentPage(true);
+  };
+
+  const handlePaymentSuccess = async () => {
+    await fetchOrders(); // Refresh orders
+    setShowPaymentPage(false);
+    setSelectedOrder(null);
   };
 
   const handleCancelOrder = async (orderId) => {
@@ -300,19 +346,12 @@ const Orders = () => {
     setShowInvoiceModal(true);
   };
 
-  const handleSelectOrder = (orderId) => {
-    setSelectedOrders(prev => 
-      prev.includes(orderId) 
-        ? prev.filter(id => id !== orderId)
-        : [...prev, orderId]
-    );
-  };
 
   const handleSelectAll = () => {
-    if (selectedOrders.length === orders.length) {
+    if (selectedOrders.length === paginatedOrders.length) {
       setSelectedOrders([]);
     } else {
-      setSelectedOrders(orders.map(order => order.id));
+      setSelectedOrders(paginatedOrders.map(order => order.id));
     }
   };
 
@@ -336,8 +375,7 @@ const Orders = () => {
   const getPaymentMethodBadge = (method) => {
     if (!method) return null;
     return (
-      <span className="px-3 py-1.5 text-xs font-semibold rounded-full bg-gradient-to-r from-primary-100 to-primary-200 text-primary-800 border border-primary-300 shadow-soft">
-        <Icon name="creditCard" size="xs" className="mr-1" />
+      <span className="px-3 py-1.5 text-sm font-semibold rounded-full bg-green-100 text-green-800 border border-green-200 whitespace-nowrap">
         {method}
       </span>
     );
@@ -353,19 +391,6 @@ const Orders = () => {
     if (typeof amount !== 'number') amount = Number(amount) || 0;
     return '$' + amount.toLocaleString(undefined, { minimumFractionDigits: 2 });
   }
-  // Action button component
-  const ActionButton = ({ icon, label, onClick, color = 'primary' }) => (
-    <button
-      className={`btn-${color} btn-sm flex items-center space-x-1 px-3 py-2 rounded-lg font-medium transition hover:scale-105`}
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      type="button"
-    >
-      <Icon name={icon} size="sm" />
-      <span className="hidden md:inline">{label}</span>
-    </button>
-  );
 
   if (loading) {
     return <OrdersSkeleton rows={isMobile ? 4 : 8} />;
@@ -385,51 +410,106 @@ const Orders = () => {
       {/* Header */}
       <div className="card-gradient p-4 sm:p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
         {/* Status Cards Row */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
-          {/* Pending */}
-          <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
+          {/* Total Orders */}
+          <div className="p-6 rounded-xl shadow-lg text-white" style={{background: 'linear-gradient(to right, #53B312, #4A9F0F)'}}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm opacity-90">Pending Orders</p>
-                <p className="text-3xl font-bold">{orders.filter(order => order.status === 'PENDING').length}</p>
+                <p className="text-sm opacity-90">Total Orders</p>
+                <p className="text-3xl font-bold">{paginatedOrders.length}</p>
               </div>
-              <div className="text-4xl">⏳</div>
+              <div className="text-4xl">📋</div>
             </div>
           </div>
-          {/* Completed */}
-          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
+          
+          {/* Pending Orders */}
+          <button 
+            onClick={() => {
+              setSelectedStatus(selectedStatus === 'PENDING' ? '' : 'PENDING');
+              setPagination(prev => ({ ...prev, page: 1 }));
+            }}
+            className={`p-6 rounded-xl shadow-lg text-white hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:outline-none ${
+              selectedStatus === 'PENDING' 
+                ? 'ring-4 ring-orange-300 scale-105 bg-gradient-to-r from-orange-500 to-orange-600' 
+                : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'
+            }`}
+            title={selectedStatus === 'PENDING' ? 'Click to show all orders' : 'Click to filter and show only Pending orders'}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm opacity-90">Completed Orders</p>
-                <p className="text-3xl font-bold">{orders.filter(order => order.status === 'COMPLETED').length}</p>
+                <p className="text-sm opacity-90">Pending</p>
+                <p className="text-3xl font-bold">{paginatedOrders.filter(order => order.status === 'PENDING').length}</p>
+              </div>
+              <div className="text-4xl">⏰</div>
+            </div>
+          </button>
+          
+          {/* Completed Orders */}
+          <button 
+            onClick={() => {
+              setSelectedStatus(selectedStatus === 'COMPLETED' ? '' : 'COMPLETED');
+              setPagination(prev => ({ ...prev, page: 1 }));
+            }}
+            className={`p-6 rounded-xl shadow-lg text-white hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:outline-none ${
+              selectedStatus === 'COMPLETED' 
+                ? 'ring-4 ring-green-300 scale-105 bg-gradient-to-r from-green-500 to-green-600' 
+                : 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'
+            }`}
+            title={selectedStatus === 'COMPLETED' ? 'Click to show all orders' : 'Click to filter and show only Completed orders'}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Completed</p>
+                <p className="text-3xl font-bold">{paginatedOrders.filter(order => order.status === 'COMPLETED').length}</p>
               </div>
               <div className="text-4xl">✅</div>
             </div>
-          </div>
-          {/* Cancelled */}
-          <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-xl shadow-lg text-white">
+          </button>
+          
+          {/* Cancelled Orders */}
+          <button 
+            onClick={() => {
+              setSelectedStatus(selectedStatus === 'CANCELLED' ? '' : 'CANCELLED');
+              setPagination(prev => ({ ...prev, page: 1 }));
+            }}
+            className={`p-6 rounded-xl shadow-lg text-white hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:outline-none ${
+              selectedStatus === 'CANCELLED' 
+                ? 'ring-4 ring-red-300 scale-105 bg-gradient-to-r from-red-500 to-red-600' 
+                : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700'
+            }`}
+            title={selectedStatus === 'CANCELLED' ? 'Click to show all orders' : 'Click to filter and show only Cancelled orders'}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm opacity-90">Cancelled Orders</p>
-                <p className="text-3xl font-bold">{orders.filter(order => order.status === 'CANCELLED').length}</p>
+                <p className="text-sm opacity-90">Cancelled</p>
+                <p className="text-3xl font-bold">{paginatedOrders.filter(order => order.status === 'CANCELLED').length}</p>
               </div>
               <div className="text-4xl">❌</div>
             </div>
-          </div>
+          </button>
         </div>
+        
         {/* Controls Row */}
         <div className="flex flex-col sm:flex-row justify-end items-center gap-3 sm:gap-6 w-full">
-          <select
-            value={dateRange}
-            onChange={e => setDateRange(e.target.value)}
-            className="px-6 py-3 rounded-xl text-sm font-semibold border border-primary-300 bg-white text-primary-800 shadow-soft focus:outline-none focus:ring-2 focus:ring-primary-400 transition-all duration-200"
-            style={{ minWidth: 140 }}
-          >
-            <option value="today">Today</option>
-            <option value="week">This Week</option>
-            <option value="month">This Month</option>
-            <option value="all">All</option>
-          </select>
+          {/* Time Filter Dropdown */}
+          <div className="flex items-center gap-2">
+            <select
+              id="timeFilter"
+              value={timeFilter}
+              onChange={(e) => {
+                setTimeFilter(e.target.value);
+                setPagination(prev => ({ ...prev, page: 1 }));
+              }}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 bg-white hover:border-gray-400"
+            >
+              <option value="">All</option>
+              <option value="today">Today</option>
+              <option value="thisWeek">This Week</option>
+              <option value="thisMonth">This Month</option>
+              <option value="thisYear">This Year</option>
+            </select>
+          </div>
+          
           <button
             className="btn-secondary flex items-center"
             onClick={() => setShowFilters(v => !v)}
@@ -450,17 +530,24 @@ const Orders = () => {
       {showFilters && (
         <div>
           <OrderFilters
-            filters={filters}
-            onFiltersChange={setFilters}
+            searchTerm={searchTerm}
+            onSearchChange={handleSearchChange}
+            selectedStatus={selectedStatus}
+            onStatusChange={setSelectedStatus}
+            selectedTable={selectedTable}
+            onTableChange={setSelectedTable}
+            startDate={startDate}
+            onStartDateChange={setStartDate}
+            endDate={endDate}
+            onEndDateChange={setEndDate}
             showTodayOnly={showTodayOnly}
             onReset={() => {
-              setFilters({
-                status: '',
-                tableId: '',
-                startDate: showTodayOnly ? getTodayDate() : '',
-                endDate: showTodayOnly ? getTodayDate() : '',
-                search: ''
-              });
+              setSearchTerm('');
+              setSelectedStatus('');
+              setSelectedTable('');
+              setStartDate('');
+              setEndDate('');
+              setTimeFilter('');
               setPagination(prev => ({ ...prev, page: 1 }));
               setShowFilters(false); // auto-close on reset
             }}
@@ -476,11 +563,11 @@ const Orders = () => {
         <div className="table-header flex justify-between items-center pb-2">
           <div>
             <h3 className="text-xl font-bold text-gradient flex items-center">
-              Orders ({pagination.total})
-              {showTodayOnly && (
+              Orders ({paginationMetadata.total})
+              {timeFilter && (
                 <span className="ml-3 text-sm bg-gradient-to-r from-primary-100 to-primary-200 text-primary-800 px-3 py-1 rounded-full border border-primary-300 shadow-soft flex items-center">
                   <Icon name="calendar" size="sm" className="mr-1" />
-                  Today
+                  {getTimeFilterDisplay()}
                 </span>
               )}
             </h3>
@@ -491,7 +578,7 @@ const Orders = () => {
           <label className="flex items-center space-x-2 cursor-pointer">
             <input
               type="checkbox"
-              checked={selectedOrders.length === orders.length && orders.length > 0}
+              checked={selectedOrders.length === paginatedOrders.length && paginatedOrders.length > 0}
               onChange={handleSelectAll}
               className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500 focus:ring-2"
               aria-label="Select all orders"
@@ -501,7 +588,7 @@ const Orders = () => {
         </div>
         <div className="overflow-x-auto custom-scrollbar">
           <div className="space-y-3">
-            {orders.length === 0 ? (
+            {paginatedOrders.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16">
                 <div className="icon-container bg-primary text-white mb-4">
                   <Icon name="orders" size="xl" />
@@ -513,7 +600,7 @@ const Orders = () => {
                 </button>
               </div>
             ) : (
-              orders.map((order, index) => (
+              paginatedOrders.map((order, index) => (
                 <div
                   key={order.id}
                   className="bg-neutral-50 rounded-2xl shadow p-4 md:p-5 flex flex-col md:flex-row md:items-center md:justify-between hover:shadow-lg transition group cursor-pointer border border-transparent hover:border-primary-200"
@@ -584,13 +671,13 @@ const Orders = () => {
         </div>
 
         {/* Pagination */}
-        {pagination.pages > 1 && (
+        {paginationMetadata.pages > 1 && (
           <div className="table-header">
             <div className="flex justify-between items-center">
               <div className="text-sm text-neutral-700">
                 Showing {((pagination.page - 1) * pagination.limit) + 1} to{' '}
-                {Math.min(pagination.page * pagination.limit, pagination.total)} of{' '}
-                {pagination.total} results
+                {Math.min(pagination.page * pagination.limit, paginationMetadata.total)} of{' '}
+                {paginationMetadata.total} results
               </div>
               <div className="flex space-x-2">
                 <button
@@ -602,11 +689,11 @@ const Orders = () => {
                   <span>Previous</span>
                 </button>
                 <span className="px-4 py-2 text-sm font-medium text-neutral-700 bg-white border border-neutral-200 rounded-lg">
-                  Page {pagination.page} of {pagination.pages}
+                  Page {pagination.page} of {paginationMetadata.pages}
                 </span>
                 <button
                   onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
-                  disabled={pagination.page === pagination.pages}
+                  disabled={pagination.page === paginationMetadata.pages}
                   className="pagination-btn-inactive disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
                 >
                   <span>Next</span>
@@ -629,7 +716,7 @@ const Orders = () => {
                     <Icon name="orders" color="#0ea5e9" />
                   </div>
                   <div>
-                    <h3 className="text-3xl font-bold text-gradient">
+                    <h3 className="text-2xl font-bold text-gradient">
                       Order #{selectedOrder.orderNumber}
                     </h3>
                     <div className="mt-2">
@@ -646,48 +733,56 @@ const Orders = () => {
               </div>
               
               <div className="space-y-6">
-                {/* Order Info Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="card-gradient p-4">
-                    <div className="flex items-center space-x-3 mb-3">
-                      <div className="icon-container bg-gradient-to-br from-primary-100 to-primary-200 text-primary-700">
-                        <Icon name="tables" />
+                {/* Order Information - Clean Design */}
+                <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
+                  <h4 className="text-lg font-semibold text-gray-900 mb-6">Order Information</h4>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {/* Table */}
+                    <div className="text-center">
+                      <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                        <Icon name="tables" className="text-blue-600" size="sm" />
                       </div>
-                      <h4 className="font-semibold text-neutral-900">Table Information</h4>
+                      <p className="text-sm font-medium text-gray-500 mb-1">Table</p>
+                      <p className="text-lg font-semibold text-gray-900">Table {selectedOrder.table?.number || 'N/A'}</p>
                     </div>
-                    <p className="text-lg font-bold text-gradient">Table {selectedOrder.table?.number || 'N/A'}</p>
-                  </div>
-                  <div className="card-gradient p-4">
-                    <div className="flex items-center space-x-3 mb-3">
-                      <div className="icon-container bg-gradient-to-br from-accent-100 to-accent-200 text-accent-700">
-                        <Icon name="profile" />
+                    
+                    {/* Cashier */}
+                    <div className="text-center">
+                      <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                        <Icon name="profile" className="text-purple-600" size="sm" />
                       </div>
-                      <h4 className="font-semibold text-neutral-900">Cashier</h4>
+                      <p className="text-sm font-medium text-gray-500 mb-1">Cashier</p>
+                      <p className="text-lg font-semibold text-gray-900">{selectedOrder.user?.name || 'N/A'}</p>
                     </div>
-                    <p className="text-lg font-bold text-gradient">{selectedOrder.user?.name || 'N/A'}</p>
-                  </div>
-                  <div className="card-gradient p-4">
-                    <div className="flex items-center space-x-3 mb-3">
-                      <div className="icon-container bg-gradient-to-br from-success-100 to-success-200 text-success-700">
-                        <Icon name="calendar" />
+                    
+                    {/* Date & Time */}
+                    <div className="text-center">
+                      <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                        <Icon name="calendar" className="text-green-600" size="sm" />
                       </div>
-                      <h4 className="font-semibold text-neutral-900">Date & Time</h4>
+                      <p className="text-sm font-medium text-gray-500 mb-1">Date & Time</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {new Date(selectedOrder.createdAt).toLocaleDateString()}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(selectedOrder.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
                     </div>
-                    <p className="text-lg font-bold text-gradient">
-                      {new Date(selectedOrder.createdAt).toLocaleString()}
-                    </p>
-                  </div>
-                  {selectedOrder.paymentMethod && (
-                    <div className="card-gradient p-4">
-                      <div className="flex items-center space-x-3 mb-3">
-                        <div className="icon-container bg-gradient-to-br from-warning-100 to-warning-200 text-warning-700">
-                          <Icon name="creditCard" />
+                    
+                    {/* Payment Method */}
+                    {selectedOrder.paymentMethod && (
+                      <div className="text-center">
+                        <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                          <Icon name="creditCard" className="text-orange-600" size="sm" />
                         </div>
-                        <h4 className="font-semibold text-neutral-900">Payment Method</h4>
+                        <p className="text-sm font-medium text-gray-500 mb-1">Payment</p>
+                        <div className="mt-1">
+                          {getPaymentMethodBadge(selectedOrder.paymentMethod)}
+                        </div>
                       </div>
-                      {getPaymentMethodBadge(selectedOrder.paymentMethod)}
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
                 {/* Unified Order Summary with Items */}
@@ -727,6 +822,12 @@ const Orders = () => {
                         <span className="font-bold text-danger-600">-${parseFloat(selectedOrder.discount).toFixed(2)}</span>
                       </div>
                     )}
+                    <div className="flex justify-between items-center p-3 bg-white/50 rounded-xl">
+                      <span className="font-medium text-neutral-700">Tax:</span>
+                      <span className="font-bold text-neutral-900">
+                        ${(parseFloat(selectedOrder.total) - parseFloat(selectedOrder.subtotal) + parseFloat(selectedOrder.discount || 0)).toFixed(2)}
+                      </span>
+                    </div>
                     <div className="flex justify-between items-center p-4 bg-gradient-to-r from-primary-50 to-primary-100 rounded-xl border border-primary-200">
                       <span className="text-lg font-bold text-neutral-900">Total:</span>
                       <span className="text-2xl font-bold text-gradient">${parseFloat(selectedOrder.total).toFixed(2)}</span>
@@ -763,7 +864,7 @@ const Orders = () => {
                     )}
                     {selectedOrder.status === 'PENDING' && (
                       <button
-                        onClick={() => handlePayment(selectedOrder.id)}
+                        onClick={() => handlePayment(selectedOrder)}
                         className="btn-success flex items-center space-x-2"
                       >
                         <Icon name="creditCard" size="sm" />
@@ -824,6 +925,18 @@ const Orders = () => {
             setShowInvoiceModal(false);
             setSelectedOrder(null);
           }}
+        />
+      )}
+
+      {/* Payment Page */}
+      {showPaymentPage && selectedOrder && (
+        <PaymentPage
+          order={selectedOrder}
+          onClose={() => {
+            setShowPaymentPage(false);
+            setSelectedOrder(null);
+          }}
+          onPaymentSuccess={handlePaymentSuccess}
         />
       )}
 

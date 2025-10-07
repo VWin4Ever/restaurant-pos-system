@@ -10,12 +10,23 @@ router.get('/', async (req, res) => {
   try {
     const tables = await prisma.table.findMany({
       where: { isActive: true },
-      orderBy: { number: 'asc' }
+      orderBy: { number: 'asc' },
+      include: {
+        _count: {
+          select: { orders: true }
+        }
+      }
     });
+
+    // Add order count to each table
+    const tablesWithOrderCount = tables.map(table => ({
+      ...table,
+      orderCount: table._count.orders
+    }));
 
     res.json({
       success: true,
-      data: tables
+      data: tablesWithOrderCount
     });
   } catch (error) {
     console.error('Get tables error:', error);
@@ -73,6 +84,19 @@ router.patch('/:id/status', requirePermission('tables.update'), async (req, res)
       });
     }
 
+    // Check if table is in maintenance mode
+    const table = await prisma.table.findUnique({
+      where: { id: tableId },
+      select: { maintenance: true }
+    });
+
+    if (table?.maintenance) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot change status of a table that is out of service (maintenance mode). Please remove maintenance mode first.'
+      });
+    }
+
     // Check if there's an active order for this table
     const activeOrder = await prisma.order.findFirst({
       where: {
@@ -99,20 +123,20 @@ router.patch('/:id/status', requirePermission('tables.update'), async (req, res)
       });
     }
 
-    const table = await prisma.table.update({
+    const updatedTable = await prisma.table.update({
       where: { id: tableId },
       data: { status }
     });
 
     // Send WebSocket notification
     if (global.wss) {
-      global.wss.sendTableUpdate(table);
+      global.wss.sendTableUpdate(updatedTable);
     }
 
     res.json({
       success: true,
       message: 'Table status updated successfully',
-      data: table
+      data: updatedTable
     });
   } catch (error) {
     console.error('Update table status error:', error);
@@ -126,7 +150,7 @@ router.patch('/:id/status', requirePermission('tables.update'), async (req, res)
 // Create a new table (Admin only)
 router.post('/', requirePermission('tables.create'), async (req, res) => {
   try {
-    const { number, capacity, group } = req.body;
+    const { number, capacity, group, notes, maintenance } = req.body;
     if (!number || !capacity) {
       return res.status(400).json({
         success: false,
@@ -138,6 +162,8 @@ router.post('/', requirePermission('tables.create'), async (req, res) => {
         number: parseInt(number),
         capacity: parseInt(capacity),
         group: group || 'General',
+        notes: notes || null,
+        maintenance: Boolean(maintenance),
         status: 'AVAILABLE',
         isActive: true
       }
@@ -154,6 +180,14 @@ router.post('/', requirePermission('tables.create'), async (req, res) => {
       data: table
     });
   } catch (error) {
+    // Handle specific Prisma errors
+    if (error.code === 'P2002') {
+      return res.status(400).json({
+        success: false,
+        message: `Table number ${number} already exists. Please choose a different number.`
+      });
+    }
+    
     console.error('Create table error:', error);
     res.status(500).json({
       success: false,
@@ -162,23 +196,41 @@ router.post('/', requirePermission('tables.create'), async (req, res) => {
   }
 });
 
-// Update a table (number/capacity/group) (Admin only)
+// Update a table (number/capacity/group/notes/maintenance) (Admin only)
 router.put('/:id', requirePermission('tables.edit'), async (req, res) => {
   try {
     const tableId = parseInt(req.params.id);
-    const { number, capacity, group } = req.body;
+    const { number, capacity, group, notes, maintenance } = req.body;
     if (!number || !capacity) {
       return res.status(400).json({
         success: false,
         message: 'Table number and capacity are required'
       });
     }
+
+    // Check if the new table number already exists (excluding current table)
+    const existingTable = await prisma.table.findFirst({
+      where: {
+        number: parseInt(number),
+        id: { not: tableId }
+      }
+    });
+
+    if (existingTable) {
+      return res.status(400).json({
+        success: false,
+        message: `Table number ${number} already exists. Please choose a different number.`
+      });
+    }
+
     const table = await prisma.table.update({
       where: { id: tableId },
       data: {
         number: parseInt(number),
         capacity: parseInt(capacity),
-        group: group || 'General'
+        group: group || 'General',
+        notes: notes || null,
+        maintenance: Boolean(maintenance)
       }
     });
 
@@ -193,6 +245,14 @@ router.put('/:id', requirePermission('tables.edit'), async (req, res) => {
       data: table
     });
   } catch (error) {
+    // Handle specific Prisma errors
+    if (error.code === 'P2002') {
+      return res.status(400).json({
+        success: false,
+        message: `Table number ${number} already exists. Please choose a different number.`
+      });
+    }
+    
     console.error('Update table error:', error);
     res.status(500).json({
       success: false,
@@ -205,6 +265,39 @@ router.put('/:id', requirePermission('tables.edit'), async (req, res) => {
 router.delete('/:id', requirePermission('tables.delete'), async (req, res) => {
   try {
     const tableId = parseInt(req.params.id);
+    
+    // Check if table exists
+    const table = await prisma.table.findUnique({
+      where: { id: tableId },
+      select: { id: true, number: true, isActive: true }
+    });
+
+    if (!table) {
+      return res.status(404).json({
+        success: false,
+        message: 'Table not found'
+      });
+    }
+
+    if (!table.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Table is already deleted'
+      });
+    }
+
+    // Check if table has any orders (history)
+    const orderCount = await prisma.order.count({
+      where: { tableId: tableId }
+    });
+
+    if (orderCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete table. This table has ${orderCount} order(s) in its history. Deleting would affect reporting and audit trails. Consider marking the table as inactive instead.`
+      });
+    }
+
     await prisma.table.update({
       where: { id: tableId },
       data: { isActive: false }

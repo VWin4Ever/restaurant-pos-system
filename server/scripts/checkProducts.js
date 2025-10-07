@@ -40,3 +40,22 @@ async function checkProducts() {
 
 checkProducts();
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -272,13 +272,42 @@ const Categories = () => {
     }
   };
 
-  // Calculate statistics
-  const stats = {
-    total: filteredCategories.length,
-    active: filteredCategories.filter(cat => cat.isActive).length,
-    inactive: filteredCategories.filter(cat => !cat.isActive).length,
-    totalProducts: filteredCategories.reduce((total, cat) => total + (cat._count?.products || 0), 0)
+  // Calculate statistics with exclusive filtering
+  const getFilteredStats = () => {
+    if (!selectedStatus) {
+      return {
+        total: filteredCategories.length,
+        active: filteredCategories.filter(cat => cat.isActive).length,
+        inactive: filteredCategories.filter(cat => !cat.isActive).length
+      };
+    }
+
+    // When a status filter is active, show exclusive counts
+    const activeFiltered = filteredCategories.filter(cat => cat.isActive);
+    const inactiveFiltered = filteredCategories.filter(cat => !cat.isActive);
+
+    if (selectedStatus === 'active') {
+      return {
+        total: activeFiltered.length,
+        active: activeFiltered.length,
+        inactive: 0
+      };
+    } else if (selectedStatus === 'inactive') {
+      return {
+        total: inactiveFiltered.length,
+        active: 0,
+        inactive: inactiveFiltered.length
+      };
+    }
+
+    return {
+      total: filteredCategories.length,
+      active: filteredCategories.filter(cat => cat.isActive).length,
+      inactive: filteredCategories.filter(cat => !cat.isActive).length
+    };
   };
+
+  const stats = getFilteredStats();
 
   if (loading) {
     return <LoadingSpinner />;
@@ -289,8 +318,11 @@ const Categories = () => {
       {/* Header */}
       <div className="card-gradient p-4 sm:p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
         {/* Status Cards Row */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
+          <div 
+            className="p-6 rounded-xl shadow-lg text-white cursor-pointer transition-all duration-200 hover:scale-105 hover:shadow-xl"
+            style={{background: 'linear-gradient(to right, #53B312, #4A9F0F)'}}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90">Total Categories</p>
@@ -300,7 +332,15 @@ const Categories = () => {
             </div>
           </div>
 
-          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
+          <button
+            onClick={() => setSelectedStatus(selectedStatus === 'active' ? '' : 'active')}
+            className={`p-6 rounded-xl shadow-lg text-white transition-all duration-200 hover:scale-105 hover:shadow-xl ${
+              selectedStatus === 'active' 
+                ? 'ring-4 ring-green-300 ring-opacity-50 scale-105' 
+                : 'hover:scale-105'
+            }`}
+            style={{background: 'linear-gradient(to right, #10B981, #059669)'}}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90">Active</p>
@@ -308,9 +348,17 @@ const Categories = () => {
               </div>
               <div className="text-4xl">✅</div>
             </div>
-          </div>
+          </button>
 
-          <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-xl shadow-lg text-white">
+          <button
+            onClick={() => setSelectedStatus(selectedStatus === 'inactive' ? '' : 'inactive')}
+            className={`p-6 rounded-xl shadow-lg text-white transition-all duration-200 hover:scale-105 hover:shadow-xl ${
+              selectedStatus === 'inactive' 
+                ? 'ring-4 ring-red-300 ring-opacity-50 scale-105' 
+                : 'hover:scale-105'
+            }`}
+            style={{background: 'linear-gradient(to right, #EF4444, #DC2626)'}}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90">Inactive</p>
@@ -318,18 +366,9 @@ const Categories = () => {
               </div>
               <div className="text-4xl">❌</div>
             </div>
-          </div>
-
-          <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Total Products</p>
-                <p className="text-3xl font-bold">{stats.totalProducts}</p>
-              </div>
-              <div className="text-4xl">🍽️</div>
-            </div>
-          </div>
+          </button>
         </div>
+
 
         {/* Controls Row */}
         <div className="flex flex-col sm:flex-row justify-end items-center gap-3 sm:gap-6 w-full">

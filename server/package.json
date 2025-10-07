@@ -13,7 +13,9 @@
     "db:reset": "prisma db push --force-reset",
     "postinstall": "prisma generate",
     "validate:env": "node scripts/validateEnvironment.js",
-
+    "backup": "node scripts/backupDatabase.js",
+    "backup:auto": "node scripts/automatedBackup.js",
+    "restore": "node scripts/restoreDatabase.js",
     "security:check": "npm run validate:env"
   },
   "dependencies": {

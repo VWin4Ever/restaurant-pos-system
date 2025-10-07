@@ -1,6 +1,9 @@
 // Enhanced role-based permissions middleware with custom user permissions
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../utils/database');
+
+// Permission cache to reduce database queries
+const permissionCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 const ROLE_PERMISSIONS = {
   ADMIN: [
@@ -23,8 +26,29 @@ const ROLE_PERMISSIONS = {
     'tables.update',
     'stock.read',
     'stock.update',
-    'reports.view'
+    'reports.view',
+    'settings.view'
   ]
+};
+
+// Cache helper functions
+const getCachedPermissions = (userId) => {
+  const cached = permissionCache.get(userId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.permissions;
+  }
+  return null;
+};
+
+const setCachedPermissions = (userId, permissions) => {
+  permissionCache.set(userId, {
+    permissions,
+    timestamp: Date.now()
+  });
+};
+
+const clearUserCache = (userId) => {
+  permissionCache.delete(userId);
 };
 
 // Check if user has permission (including custom permissions)
@@ -50,30 +74,32 @@ const hasPermission = async (userId, userRole, permission) => {
     return true;
   }
 
-  // Check custom user permissions from database
+  // Check custom user permissions from database (with caching)
   try {
-    const customPermission = await prisma.userPermission.findUnique({
-      where: {
-        userId_permission: {
-          userId: userId,
-          permission: permission
-        }
-      }
-    });
+    // Try to get cached permissions first
+    let customPermissions = getCachedPermissions(userId);
+    
+    if (!customPermissions) {
+      // Fetch from database if not cached
+      const dbPermissions = await prisma.userPermission.findMany({
+        where: { userId: userId },
+        select: { permission: true }
+      });
+      customPermissions = dbPermissions.map(p => p.permission);
+      setCachedPermissions(userId, customPermissions);
+    }
 
-    if (customPermission) {
+    // Check if user has the specific permission
+    if (customPermissions.includes(permission)) {
       return true;
     }
 
     // Check wildcard custom permissions
-    const wildcardCustomPermission = await prisma.userPermission.findFirst({
-      where: {
-        userId: userId,
-        permission: wildcardPermission
-      }
-    });
+    if (customPermissions.includes(wildcardPermission)) {
+      return true;
+    }
 
-    return !!wildcardCustomPermission;
+    return false;
   } catch (error) {
     console.error('Error checking custom permissions:', error);
     return false;
@@ -191,14 +217,20 @@ const getUserPermissions = async (userId, userRole) => {
   const rolePermissions = ROLE_PERMISSIONS[userRole] || [];
   
   try {
-    const customPermissions = await prisma.userPermission.findMany({
-      where: { userId },
-      select: { permission: true }
-    });
-
-    const customPermissionStrings = customPermissions.map(p => p.permission);
+    // Try to get cached permissions first
+    let customPermissions = getCachedPermissions(userId);
     
-    return [...new Set([...rolePermissions, ...customPermissionStrings])];
+    if (!customPermissions) {
+      // Fetch from database if not cached
+      const dbPermissions = await prisma.userPermission.findMany({
+        where: { userId },
+        select: { permission: true }
+      });
+      customPermissions = dbPermissions.map(p => p.permission);
+      setCachedPermissions(userId, customPermissions);
+    }
+    
+    return [...new Set([...rolePermissions, ...customPermissions])];
   } catch (error) {
     console.error('Error getting user permissions:', error);
     return rolePermissions;
@@ -276,5 +308,6 @@ module.exports = {
   getUserPermissions,
   getAvailablePermissions,
   canPerformAction,
+  clearUserCache,
   ROLE_PERMISSIONS
 }; 

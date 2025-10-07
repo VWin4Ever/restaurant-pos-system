@@ -38,15 +38,25 @@ export const AuthProvider = ({ children }) => {
           const userData = response.data.data;
           setUser(userData);
           
-          // Fetch user permissions if user is a cashier
+          // Set default permissions based on role
           if (userData.role === 'CASHIER') {
-            try {
-              const permissionsResponse = await axios.get(`/api/users/${userData.id}`);
-              setUserPermissions(permissionsResponse.data.data.permissions || []);
-            } catch (error) {
-              console.error('Error fetching user permissions:', error);
-              setUserPermissions([]);
-            }
+            // Cashiers have basic permissions - no need to fetch from users endpoint
+            setUserPermissions([
+              'orders.create',
+              'orders.read', 
+              'orders.update',
+              'products.view',
+              'categories.view',
+              'tables.read',
+              'tables.update',
+              'stock.read',
+              'stock.update',
+              'reports.view',
+              'settings.view'
+            ]);
+          } else if (userData.role === 'ADMIN') {
+            // Admins have all permissions
+            setUserPermissions(['*']);
           }
         } catch (error) {
           console.error('Auth check failed:', error);
@@ -120,6 +130,13 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const updateUser = (userData) => {
+    setUser(prevUser => ({
+      ...prevUser,
+      ...userData
+    }));
+  };
+
   // Role-based permissions
   const ROLE_PERMISSIONS = {
     ADMIN: [
@@ -142,7 +159,8 @@ export const AuthProvider = ({ children }) => {
       'tables.update',
       'stock.read',
       'stock.update',
-      'reports.view'
+      'reports.view',
+      'settings.view'
     ]
   };
 
@@ -152,28 +170,17 @@ export const AuthProvider = ({ children }) => {
     // Admin has all permissions
     if (user.role === 'ADMIN') return true;
     
-    // Check role-based permissions
-    const rolePermissions = ROLE_PERMISSIONS[user.role] || [];
+    // Check if user has wildcard permission
+    if (userPermissions && userPermissions.includes('*')) return true;
     
-    // Check exact permission
-    if (rolePermissions.includes(permission)) {
-      return true;
-    }
+    // Check if user has the specific permission
+    if (userPermissions && userPermissions.includes(permission)) return true;
     
-    // Check wildcard permissions
-    const [module, action] = permission.split('.');
+    // Check wildcard permissions (e.g., 'orders.*' matches 'orders.create')
+    const [module] = permission.split('.');
     const wildcardPermission = `${module}.*`;
     
-    if (rolePermissions.includes(wildcardPermission)) {
-      return true;
-    }
-
-    // Check custom user permissions
-    if (userPermissions.includes(permission)) {
-      return true;
-    }
-
-    if (userPermissions.includes(wildcardPermission)) {
+    if (userPermissions && userPermissions.includes(wildcardPermission)) {
       return true;
     }
     
@@ -192,6 +199,7 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     changePassword,
+    updateUser,
     isAuthenticated: !!user,
     isAdmin: user?.role === 'ADMIN',
     isCashier: user?.role === 'CASHIER',

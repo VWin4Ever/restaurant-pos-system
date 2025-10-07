@@ -2,8 +2,24 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import Icon from '../common/Icon';
 
-const OrderFilters = ({ filters, onFiltersChange, onReset, showTodayOnly = false }) => {
+const OrderFilters = ({ 
+  searchTerm, 
+  onSearchChange, 
+  selectedStatus, 
+  onStatusChange, 
+  selectedTable, 
+  onTableChange, 
+  startDate, 
+  onStartDateChange, 
+  endDate, 
+  onEndDateChange, 
+  onReset, 
+  showTodayOnly = false
+}) => {
   const [tables, setTables] = useState([]);
+  
+  // Check if custom date range is being used
+  const hasCustomDateRange = startDate || endDate;
 
   useEffect(() => {
     fetchTables();
@@ -18,9 +34,6 @@ const OrderFilters = ({ filters, onFiltersChange, onReset, showTodayOnly = false
     }
   };
 
-  const handleFilterChange = (key, value) => {
-    onFiltersChange(prev => ({ ...prev, [key]: value }));
-  };
 
   return (
     <div className="card-gradient animate-slide-up p-0 md:p-0" style={{ animationDelay: '400ms' }}>
@@ -29,14 +42,8 @@ const OrderFilters = ({ filters, onFiltersChange, onReset, showTodayOnly = false
         <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-neutral-100 mr-2">
           <Icon name="filter" size="sm" className="text-primary-600" />
         </span>
-        <div>
+        <div className="flex-1">
           <h3 className="text-xl font-bold text-primary-800 leading-tight">Filters</h3>
-          {showTodayOnly && (
-            <div className="text-xs text-primary-500 flex items-center space-x-1 mt-0.5">
-              <Icon name="calendar" size="xs" />
-              <span>Showing orders for today ({new Date().toLocaleDateString()})</span>
-            </div>
-          )}
         </div>
       </div>
 
@@ -48,13 +55,15 @@ const OrderFilters = ({ filters, onFiltersChange, onReset, showTodayOnly = false
             <label className="block text-xs font-semibold text-primary-700 mb-0.5">
               <Icon name="search" size="xs" className="inline-block mr-1 align-text-bottom" /> Search Order #
             </label>
-            <input
-              type="text"
-              value={filters.search}
-              onChange={(e) => handleFilterChange('search', e.target.value)}
-              placeholder="Search order number..."
-              className="input w-full h-10 px-3 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-primary-200 text-sm"
-            />
+            <div className="relative">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => onSearchChange(e.target.value)}
+                placeholder="Search order number..."
+                className="input w-full h-10 px-3 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-primary-200 text-sm"
+              />
+            </div>
           </div>
           {/* Status Filter */}
           <div>
@@ -62,8 +71,8 @@ const OrderFilters = ({ filters, onFiltersChange, onReset, showTodayOnly = false
               <Icon name="info" size="xs" className="inline-block mr-1 align-text-bottom" /> Status
             </label>
             <select
-              value={filters.status}
-              onChange={(e) => handleFilterChange('status', e.target.value)}
+              value={selectedStatus}
+              onChange={(e) => onStatusChange(e.target.value)}
               className="input w-full h-10 px-3 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-primary-200 text-sm"
             >
               <option value="">All Statuses</option>
@@ -78,8 +87,8 @@ const OrderFilters = ({ filters, onFiltersChange, onReset, showTodayOnly = false
               <Icon name="tables" size="xs" className="inline-block mr-1 align-text-bottom" /> Table
             </label>
             <select
-              value={filters.tableId}
-              onChange={(e) => handleFilterChange('tableId', e.target.value)}
+              value={selectedTable}
+              onChange={(e) => onTableChange(e.target.value)}
               className="input w-full h-10 px-3 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-primary-200 text-sm"
             >
               <option value="">All Tables</option>
@@ -97,8 +106,8 @@ const OrderFilters = ({ filters, onFiltersChange, onReset, showTodayOnly = false
             </label>
             <input
               type="date"
-              value={filters.startDate}
-              onChange={(e) => handleFilterChange('startDate', e.target.value)}
+              value={startDate}
+              onChange={(e) => onStartDateChange(e.target.value)}
               className="input w-full h-10 px-3 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-primary-200 text-sm"
             />
           </div>
@@ -109,8 +118,8 @@ const OrderFilters = ({ filters, onFiltersChange, onReset, showTodayOnly = false
             </label>
             <input
               type="date"
-              value={filters.endDate}
-              onChange={(e) => handleFilterChange('endDate', e.target.value)}
+              value={endDate}
+              onChange={(e) => onEndDateChange(e.target.value)}
               className="input w-full h-10 px-3 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-primary-200 text-sm"
             />
           </div>

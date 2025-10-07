@@ -5,6 +5,7 @@ import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
 import { toast } from 'react-toastify';
 import axios from 'axios';
+import Icon from '../common/Icon';
 
 const passwordSchema = yup.object({
   currentPassword: yup.string().required('Current password is required'),
@@ -22,6 +23,7 @@ const Profile = () => {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
+  const [passwordStrength, setPasswordStrength] = useState(0);
 
   const {
     register: registerPassword,
@@ -89,42 +91,68 @@ const Profile = () => {
     return badges[role] || 'bg-gray-100 text-gray-800';
   };
 
+  const calculatePasswordStrength = (password) => {
+    let strength = 0;
+    if (password.length >= 6) strength += 20;
+    if (password.length >= 8) strength += 20;
+    if (/[a-z]/.test(password)) strength += 20;
+    if (/[A-Z]/.test(password)) strength += 20;
+    if (/[0-9]/.test(password)) strength += 20;
+    if (/[^A-Za-z0-9]/.test(password)) strength += 20;
+    return strength;
+  };
+
+  const getPasswordStrengthColor = (strength) => {
+    if (strength < 40) return 'bg-red-500';
+    if (strength < 70) return 'bg-yellow-500';
+    return 'bg-green-500';
+  };
+
+  const getPasswordStrengthText = (strength) => {
+    if (strength < 40) return 'Weak';
+    if (strength < 70) return 'Medium';
+    return 'Strong';
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Profile Settings</h1>
 
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <nav className="flex space-x-0">
           <button
             onClick={() => setActiveTab('profile')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+            className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors ${
               activeTab === 'profile'
-                ? 'border-primary-500 text-primary-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'bg-primary-50 text-primary-600 border-b-2 border-primary-600'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
           >
-            Profile Information
+            <Icon name="user" className="w-4 h-4" />
+            <span>Profile Information</span>
           </button>
           <button
             onClick={() => setActiveTab('password')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+            className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors ${
               activeTab === 'password'
-                ? 'border-primary-500 text-primary-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'bg-primary-50 text-primary-600 border-b-2 border-primary-600'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
           >
-            Change Password
+            <Icon name="lock" className="w-4 h-4" />
+            <span>Change Password</span>
           </button>
           <button
             onClick={() => setActiveTab('activity')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+            className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors ${
               activeTab === 'activity'
-                ? 'border-primary-500 text-primary-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'bg-primary-50 text-primary-600 border-b-2 border-primary-600'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
           >
-            Account Activity
+            <Icon name="activity" className="w-4 h-4" />
+            <span>Account Activity</span>
           </button>
         </nav>
       </div>
@@ -133,115 +161,174 @@ const Profile = () => {
       {activeTab === 'profile' && (
         <div className="space-y-6">
           {/* User Information Display */}
-          <div className="card p-6">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-center mb-6">
               <div className="flex-shrink-0">
-                <div className="h-16 w-16 rounded-full bg-primary-100 flex items-center justify-center">
-                  <span className="text-2xl font-bold text-primary-800">
+                <div className="h-20 w-20 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center shadow-lg">
+                  <span className="text-2xl font-bold text-white">
                     {user?.name?.charAt(0).toUpperCase() || 'U'}
                   </span>
                 </div>
               </div>
-              <div className="ml-4">
-                <h3 className="text-lg font-medium text-gray-900">{user?.name}</h3>
-                <p className="text-sm text-gray-500">@{user?.username}</p>
-              </div>
-            </div>
-            
-            <h4 className="text-md font-medium text-gray-900 mb-4">Account Information</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Username</label>
-                <p className="mt-1 text-sm text-gray-900">{user?.username}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Full Name</label>
-                <p className="mt-1 text-sm text-gray-900">{user?.name}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Email</label>
-                <p className="mt-1 text-sm text-gray-900">{user?.email || 'Not provided'}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Role</label>
-                <p className="mt-1">
+              <div className="ml-6">
+                <h3 className="text-xl font-semibold text-gray-900">{user?.name}</h3>
+                <p className="text-sm text-gray-500 flex items-center">
+                  <Icon name="at" className="w-4 h-4 mr-1" />
+                  @{user?.username}
+                </p>
+                <div className="mt-2 flex items-center space-x-2">
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleBadge(user?.role)}`}>
+                    <Icon name="shield" className="w-3 h-3 mr-1" />
                     {user?.role}
                   </span>
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Account Status</label>
-                <p className="mt-1">
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                     user?.isActive 
                       ? 'bg-green-100 text-green-800' 
                       : 'bg-red-100 text-red-800'
                   }`}>
+                    <Icon name={user?.isActive ? "check-circle" : "x-circle"} className="w-3 h-3 mr-1" />
                     {user?.isActive ? 'Active' : 'Inactive'}
                   </span>
-                </p>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Member Since</label>
-                <p className="mt-1 text-sm text-gray-900">
-                  {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}
-                </p>
+            </div>
+            
+            <div className="border-t border-gray-200 pt-6">
+              <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <Icon name="info" className="w-5 h-5 mr-2 text-primary-600" />
+                Account Information
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                    <Icon name="at" className="w-4 h-4 mr-2 text-gray-500" />
+                    Username
+                  </label>
+                  <p className="text-sm text-gray-900 font-medium">{user?.username}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                    <Icon name="user" className="w-4 h-4 mr-2 text-gray-500" />
+                    Full Name
+                  </label>
+                  <p className="text-sm text-gray-900 font-medium">{user?.name}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                    <Icon name="mail" className="w-4 h-4 mr-2 text-gray-500" />
+                    Email
+                  </label>
+                  <p className="text-sm text-gray-900 font-medium">{user?.email || 'Not provided'}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                    <Icon name="shield" className="w-4 h-4 mr-2 text-gray-500" />
+                    Role
+                  </label>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleBadge(user?.role)}`}>
+                    {user?.role}
+                  </span>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                    <Icon name="activity" className="w-4 h-4 mr-2 text-gray-500" />
+                    Account Status
+                  </label>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                    user?.isActive 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-red-100 text-red-800'
+                  }`}>
+                    <Icon name={user?.isActive ? "check-circle" : "x-circle"} className="w-3 h-3 mr-1" />
+                    {user?.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                    <Icon name="calendar" className="w-4 h-4 mr-2 text-gray-500" />
+                    Member Since
+                  </label>
+                  <p className="text-sm text-gray-900 font-medium">
+                    {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Edit Profile Form */}
-          <div className="card p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Update Profile</h3>
-            <form onSubmit={handleProfileSubmit(onSubmitProfile)} className="space-y-4">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center mb-6">
+              <div className="h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center mr-3">
+                <Icon name="edit" className="w-5 h-5 text-primary-600" />
+              </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Full Name *
-                </label>
-                <input
-                  {...registerProfile('name')}
-                  type="text"
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                    profileErrors.name ? 'border-red-300' : 'border-gray-300'
-                  }`}
-                  placeholder="Enter your full name"
-                />
-                {profileErrors.name && (
-                  <p className="mt-1 text-sm text-red-600">{profileErrors.name.message}</p>
-                )}
+                <h3 className="text-lg font-semibold text-gray-900">Update Profile</h3>
+                <p className="text-sm text-gray-500">Modify your personal information</p>
+              </div>
+            </div>
+            
+            <form onSubmit={handleProfileSubmit(onSubmitProfile)} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                    <Icon name="user" className="w-4 h-4 mr-2 text-gray-500" />
+                    Full Name *
+                  </label>
+                  <input
+                    {...registerProfile('name')}
+                    type="text"
+                    className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors ${
+                      profileErrors.name ? 'border-red-300 bg-red-50' : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                    placeholder="Enter your full name"
+                  />
+                  {profileErrors.name && (
+                    <p className="mt-2 text-sm text-red-600 flex items-center">
+                      <Icon name="alert-circle" className="w-4 h-4 mr-1" />
+                      {profileErrors.name.message}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                    <Icon name="mail" className="w-4 h-4 mr-2 text-gray-500" />
+                    Email Address *
+                  </label>
+                  <input
+                    {...registerProfile('email')}
+                    type="email"
+                    className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors ${
+                      profileErrors.email ? 'border-red-300 bg-red-50' : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                    placeholder="Enter your email address"
+                  />
+                  {profileErrors.email && (
+                    <p className="mt-2 text-sm text-red-600 flex items-center">
+                      <Icon name="alert-circle" className="w-4 h-4 mr-1" />
+                      {profileErrors.email.message}
+                    </p>
+                  )}
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Address *
-                </label>
-                <input
-                  {...registerProfile('email')}
-                  type="email"
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                    profileErrors.email ? 'border-red-300' : 'border-gray-300'
-                  }`}
-                  placeholder="Enter your email address"
-                />
-                {profileErrors.email && (
-                  <p className="mt-1 text-sm text-red-600">{profileErrors.email.message}</p>
-                )}
-              </div>
-
-              <div className="flex justify-end">
+              <div className="flex justify-end pt-4 border-t border-gray-200">
                 <button
                   type="submit"
                   disabled={isUpdatingProfile}
-                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
                 >
                   {isUpdatingProfile ? (
-                    <div className="flex items-center">
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                      Updating...
-                    </div>
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Updating...</span>
+                    </>
                   ) : (
-                    'Update Profile'
+                    <>
+                      <Icon name="save" className="w-4 h-4" />
+                      <span>Update Profile</span>
+                    </>
                   )}
                 </button>
               </div>
@@ -254,23 +341,42 @@ const Profile = () => {
       {activeTab === 'password' && (
         <div className="space-y-6">
           {/* Password Requirements */}
-          <div className="card p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Password Requirements</h3>
-            <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center mb-6">
+              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center mr-3">
+                <Icon name="shield" className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Password Security Guidelines</h3>
+                <p className="text-sm text-gray-500">Follow these guidelines for a secure password</p>
+              </div>
+            </div>
+            
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <div className="flex">
                 <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
+                  <Icon name="info" className="h-5 w-5 text-blue-500" />
                 </div>
                 <div className="ml-3">
-                  <h3 className="text-sm font-medium text-blue-800">Password Security Guidelines</h3>
-                  <div className="mt-2 text-sm text-blue-700">
-                    <ul className="list-disc list-inside space-y-1">
-                      <li>Minimum 6 characters long</li>
-                      <li>Use a combination of letters, numbers, and symbols</li>
-                      <li>Avoid using personal information</li>
-                      <li>Don't reuse passwords from other accounts</li>
+                  <h3 className="text-sm font-medium text-blue-800 mb-2">Password Requirements</h3>
+                  <div className="text-sm text-blue-700">
+                    <ul className="space-y-1">
+                      <li className="flex items-center">
+                        <Icon name="check" className="w-4 h-4 mr-2 text-green-500" />
+                        Minimum 6 characters long
+                      </li>
+                      <li className="flex items-center">
+                        <Icon name="check" className="w-4 h-4 mr-2 text-green-500" />
+                        Use a combination of letters, numbers, and symbols
+                      </li>
+                      <li className="flex items-center">
+                        <Icon name="check" className="w-4 h-4 mr-2 text-green-500" />
+                        Avoid using personal information
+                      </li>
+                      <li className="flex items-center">
+                        <Icon name="check" className="w-4 h-4 mr-2 text-green-500" />
+                        Don't reuse passwords from other accounts
+                      </li>
                     </ul>
                   </div>
                 </div>
@@ -279,78 +385,123 @@ const Profile = () => {
           </div>
 
           {/* Change Password Form */}
-          <div className="card p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Change Password</h3>
-          <form onSubmit={handlePasswordSubmit(onSubmitPassword)} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Current Password *
-              </label>
-              <input
-                {...registerPassword('currentPassword')}
-                type="password"
-                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                  passwordErrors.currentPassword ? 'border-red-300' : 'border-gray-300'
-                }`}
-                placeholder="Enter your current password"
-              />
-              {passwordErrors.currentPassword && (
-                <p className="mt-1 text-sm text-red-600">{passwordErrors.currentPassword.message}</p>
-              )}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center mb-6">
+              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center mr-3">
+                <Icon name="lock" className="w-5 h-5 text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Change Password</h3>
+                <p className="text-sm text-gray-500">Update your account password</p>
+              </div>
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                New Password *
-              </label>
-              <input
-                {...registerPassword('newPassword')}
-                type="password"
-                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                  passwordErrors.newPassword ? 'border-red-300' : 'border-gray-300'
-                }`}
-                placeholder="Enter your new password"
-              />
-              {passwordErrors.newPassword && (
-                <p className="mt-1 text-sm text-red-600">{passwordErrors.newPassword.message}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Confirm New Password *
-              </label>
-              <input
-                {...registerPassword('confirmPassword')}
-                type="password"
-                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                  passwordErrors.confirmPassword ? 'border-red-300' : 'border-gray-300'
-                }`}
-                placeholder="Confirm your new password"
-              />
-              {passwordErrors.confirmPassword && (
-                <p className="mt-1 text-sm text-red-600">{passwordErrors.confirmPassword.message}</p>
-              )}
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={isChangingPassword}
-                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isChangingPassword ? (
-                  <div className="flex items-center">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                    Changing...
-                  </div>
-                ) : (
-                  'Change Password'
+            
+            <form onSubmit={handlePasswordSubmit(onSubmitPassword)} className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                  <Icon name="lock" className="w-4 h-4 mr-2 text-gray-500" />
+                  Current Password *
+                </label>
+                <input
+                  {...registerPassword('currentPassword')}
+                  type="password"
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors ${
+                    passwordErrors.currentPassword ? 'border-red-300 bg-red-50' : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                  placeholder="Enter your current password"
+                />
+                {passwordErrors.currentPassword && (
+                  <p className="mt-2 text-sm text-red-600 flex items-center">
+                    <Icon name="alert-circle" className="w-4 h-4 mr-1" />
+                    {passwordErrors.currentPassword.message}
+                  </p>
                 )}
-              </button>
-            </div>
-          </form>
-        </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                  <Icon name="key" className="w-4 h-4 mr-2 text-gray-500" />
+                  New Password *
+                </label>
+                <input
+                  {...registerPassword('newPassword')}
+                  type="password"
+                  onChange={(e) => setPasswordStrength(calculatePasswordStrength(e.target.value))}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors ${
+                    passwordErrors.newPassword ? 'border-red-300 bg-red-50' : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                  placeholder="Enter your new password"
+                />
+                
+                {/* Password Strength Meter */}
+                <div className="mt-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">Password strength:</span>
+                    <span className={`font-medium ${
+                      passwordStrength < 40 ? 'text-red-600' : 
+                      passwordStrength < 70 ? 'text-yellow-600' : 'text-green-600'
+                    }`}>
+                      {getPasswordStrengthText(passwordStrength)}
+                    </span>
+                  </div>
+                  <div className="mt-1 w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className={`h-2 rounded-full transition-all duration-300 ${getPasswordStrengthColor(passwordStrength)}`}
+                      style={{ width: `${passwordStrength}%` }}
+                    ></div>
+                  </div>
+                </div>
+                
+                {passwordErrors.newPassword && (
+                  <p className="mt-2 text-sm text-red-600 flex items-center">
+                    <Icon name="alert-circle" className="w-4 h-4 mr-1" />
+                    {passwordErrors.newPassword.message}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                  <Icon name="check-circle" className="w-4 h-4 mr-2 text-gray-500" />
+                  Confirm New Password *
+                </label>
+                <input
+                  {...registerPassword('confirmPassword')}
+                  type="password"
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors ${
+                    passwordErrors.confirmPassword ? 'border-red-300 bg-red-50' : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                  placeholder="Confirm your new password"
+                />
+                {passwordErrors.confirmPassword && (
+                  <p className="mt-2 text-sm text-red-600 flex items-center">
+                    <Icon name="alert-circle" className="w-4 h-4 mr-1" />
+                    {passwordErrors.confirmPassword.message}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex justify-end pt-4 border-t border-gray-200">
+                <button
+                  type="submit"
+                  disabled={isChangingPassword}
+                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  {isChangingPassword ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Changing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="save" className="w-4 h-4" />
+                      <span>Change Password</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -358,105 +509,164 @@ const Profile = () => {
       {activeTab === 'activity' && (
         <div className="space-y-6">
           {/* Account Summary */}
-          <div className="card p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Account Summary</h3>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center mb-6">
+              <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center mr-3">
+                <Icon name="activity" className="w-5 h-5 text-purple-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Account Summary</h3>
+                <p className="text-sm text-gray-500">Overview of your account activity</p>
+              </div>
+            </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-primary-600">
+              <div className="bg-gradient-to-br from-primary-50 to-primary-100 rounded-lg p-4 text-center">
+                <div className="h-12 w-12 rounded-full bg-primary-500 flex items-center justify-center mx-auto mb-3">
+                  <Icon name="calendar" className="w-6 h-6 text-white" />
+                </div>
+                <div className="text-2xl font-bold text-primary-700">
                   {user?.createdAt ? Math.floor((new Date() - new Date(user.createdAt)) / (1000 * 60 * 60 * 24)) : 0}
                 </div>
-                <div className="text-sm text-gray-500">Days Active</div>
+                <div className="text-sm text-primary-600 font-medium">Days Active</div>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">
+              
+              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 text-center">
+                <div className="h-12 w-12 rounded-full bg-green-500 flex items-center justify-center mx-auto mb-3">
+                  <Icon name={user?.isActive ? "check-circle" : "x-circle"} className="w-6 h-6 text-white" />
+                </div>
+                <div className="text-lg font-bold text-green-700">
                   {user?.isActive ? 'Active' : 'Inactive'}
                 </div>
-                <div className="text-sm text-gray-500">Account Status</div>
+                <div className="text-sm text-green-600 font-medium">Account Status</div>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">
+              
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 text-center">
+                <div className="h-12 w-12 rounded-full bg-blue-500 flex items-center justify-center mx-auto mb-3">
+                  <Icon name="shield" className="w-6 h-6 text-white" />
+                </div>
+                <div className="text-lg font-bold text-blue-700">
                   {user?.role}
                 </div>
-                <div className="text-sm text-gray-500">User Role</div>
+                <div className="text-sm text-blue-600 font-medium">User Role</div>
               </div>
             </div>
           </div>
 
           {/* Security Information */}
-          <div className="card p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Security Information</h3>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Account Created</p>
-                  <p className="text-sm text-gray-500">
-                    {user?.createdAt ? new Date(user.createdAt).toLocaleString() : 'N/A'}
-                  </p>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center mb-6">
+              <div className="h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center mr-3">
+                <Icon name="shield-check" className="w-5 h-5 text-yellow-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Security Information</h3>
+                <p className="text-sm text-gray-500">Your account security details</p>
+              </div>
+            </div>
+            
+            <div className="space-y-6">
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-4">
+                  <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
+                    <Icon name="calendar" className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">Account Created</p>
+                    <p className="text-sm text-gray-500">
+                      {user?.createdAt ? new Date(user.createdAt).toLocaleString() : 'N/A'}
+                    </p>
+                  </div>
                 </div>
                 <div className="flex items-center">
                   <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                  <span className="ml-2 text-sm text-gray-500">Verified</span>
+                  <span className="ml-2 text-sm text-gray-500 font-medium">Verified</span>
                 </div>
               </div>
               
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Last Profile Update</p>
-                  <p className="text-sm text-gray-500">
-                    {user?.updatedAt ? new Date(user.updatedAt).toLocaleString() : 'Never'}
-                  </p>
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-4">
+                  <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                    <Icon name="edit" className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">Last Profile Update</p>
+                    <p className="text-sm text-gray-500">
+                      {user?.updatedAt ? new Date(user.updatedAt).toLocaleString() : 'Never'}
+                    </p>
+                  </div>
                 </div>
                 <div className="flex items-center">
                   <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                  <span className="ml-2 text-sm text-gray-500">Updated</span>
+                  <span className="ml-2 text-sm text-gray-500 font-medium">Updated</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-4">
+                  <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
+                    <Icon name="login" className="w-5 h-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">Last Login</p>
+                    <p className="text-sm text-gray-500">
+                      {user?.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
+                  <span className="ml-2 text-sm text-gray-500 font-medium">Recent</span>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Account Actions */}
-          <div className="card p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Account Actions</h3>
-            <div className="space-y-3">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center mb-6">
+              <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center mr-3">
+                <Icon name="settings" className="w-5 h-5 text-indigo-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Account Actions</h3>
+                <p className="text-sm text-gray-500">Manage your account settings</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
               <button
                 onClick={() => setActiveTab('password')}
-                className="w-full flex items-center justify-between px-4 py-3 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                className="w-full flex items-center justify-between px-6 py-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 group"
               >
-                <div className="flex items-center">
-                  <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
-                    <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                    </svg>
+                <div className="flex items-center space-x-4">
+                  <div className="h-12 w-12 bg-gradient-to-br from-yellow-400 to-yellow-500 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Icon name="lock" className="w-6 h-6 text-white" />
                   </div>
-                  <div className="ml-3 text-left">
-                    <p className="text-sm font-medium text-gray-900">Change Password</p>
-                    <p className="text-sm text-gray-500">Update your account password</p>
+                  <div className="text-left">
+                    <p className="text-sm font-semibold text-gray-900">Change Password</p>
+                    <p className="text-sm text-gray-500">Update your account password for security</p>
                   </div>
                 </div>
-                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
+                <Icon name="chevron-right" className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
               </button>
 
               <button
                 onClick={() => setActiveTab('profile')}
-                className="w-full flex items-center justify-between px-4 py-3 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                className="w-full flex items-center justify-between px-6 py-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 group"
               >
-                <div className="flex items-center">
-                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
+                <div className="flex items-center space-x-4">
+                  <div className="h-12 w-12 bg-gradient-to-br from-blue-400 to-blue-500 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Icon name="edit" className="w-6 h-6 text-white" />
                   </div>
-                  <div className="ml-3 text-left">
-                    <p className="text-sm font-medium text-gray-900">Edit Profile</p>
+                  <div className="text-left">
+                    <p className="text-sm font-semibold text-gray-900">Edit Profile</p>
                     <p className="text-sm text-gray-500">Update your personal information</p>
                   </div>
                 </div>
-                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
+                <Icon name="chevron-right" className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
               </button>
+
             </div>
           </div>
         </div>

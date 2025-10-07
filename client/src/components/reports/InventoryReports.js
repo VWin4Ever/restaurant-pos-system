@@ -17,9 +17,7 @@ const InventoryReports = () => {
   // Inventory-focused reports
   const reports = [
     { id: 'stock-levels', name: 'Stock Levels', icon: '📦', description: 'Current inventory levels and alerts' },
-    { id: 'wastage', name: 'Wastage', icon: '🗑️', description: 'Food waste and spoilage tracking' },
-    { id: 'movements', name: 'Movements', icon: '📊', description: 'Stock in/out movements' },
-    { id: 'alerts', name: 'Alerts', icon: '⚠️', description: 'Low stock and expiry alerts' }
+    { id: 'movements', name: 'Movements', icon: '📊', description: 'Stock in/out movements' }
   ];
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#FFC658'];
@@ -246,139 +244,6 @@ const InventoryReports = () => {
     </div>
   );
 
-  const renderWastage = () => (
-    <div className="space-y-6">
-      {/* Wastage Summary */}
-      {data.wastageSummary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-red-50 p-6 rounded-xl">
-            <div className="flex items-center">
-              <div className="p-3 bg-red-100 rounded-lg">
-                <span className="text-2xl">🗑️</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-red-600">Total Wastage</p>
-                <p className="text-2xl font-bold text-red-900">
-                  {data.wastageSummary.totalWastage || 0}%
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-orange-50 p-6 rounded-xl">
-            <div className="flex items-center">
-              <div className="p-3 bg-orange-100 rounded-lg">
-                <span className="text-2xl">💰</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-orange-600">Lost Value</p>
-                <p className="text-2xl font-bold text-orange-900">
-                  {formatCurrency(data.wastageSummary.lostValue || 0)}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-blue-50 p-6 rounded-xl">
-            <div className="flex items-center">
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <span className="text-2xl">📦</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-blue-600">Items Wasted</p>
-                <p className="text-2xl font-bold text-blue-900">
-                  {data.wastageSummary.itemsWasted || 0}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-purple-50 p-6 rounded-xl">
-            <div className="flex items-center">
-              <div className="p-3 bg-purple-100 rounded-lg">
-                <span className="text-2xl">📊</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-purple-600">Avg Wastage</p>
-                <p className="text-2xl font-bold text-purple-900">
-                  {data.wastageSummary.averageWastage || 0}%
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Wastage Chart */}
-      {data.wastageByCategory && (
-        <div className="bg-white p-6 rounded-xl shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Wastage by Category</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={data.wastageByCategory}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="wastage"
-              >
-                {data.wastageByCategory.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value) => `${value}%`} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* Wastage Details */}
-      {data.wastageDetails && (
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Wastage Details</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Wastage %</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lost Value</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {data.wastageDetails?.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {item.name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {item.category}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.wastagePercentage}%
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600">
-                      {formatCurrency(item.lostValue)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {item.reason || 'N/A'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
 
   const renderMovements = () => (
     <div className="space-y-6">
@@ -441,109 +306,6 @@ const InventoryReports = () => {
     </div>
   );
 
-  const renderAlerts = () => (
-    <div className="space-y-6">
-      {/* Alerts Summary */}
-      {data.alertsSummary && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-red-50 p-6 rounded-xl">
-            <div className="flex items-center">
-              <div className="p-3 bg-red-100 rounded-lg">
-                <span className="text-2xl">⚠️</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-red-600">Low Stock</p>
-                <p className="text-2xl font-bold text-red-900">
-                  {data.alertsSummary.lowStock || 0}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-orange-50 p-6 rounded-xl">
-            <div className="flex items-center">
-              <div className="p-3 bg-orange-100 rounded-lg">
-                <span className="text-2xl">⏰</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-orange-600">Expiring Soon</p>
-                <p className="text-2xl font-bold text-orange-900">
-                  {data.alertsSummary.expiringSoon || 0}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-purple-50 p-6 rounded-xl">
-            <div className="flex items-center">
-              <div className="p-3 bg-purple-100 rounded-lg">
-                <span className="text-2xl">📊</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-purple-600">Total Alerts</p>
-                <p className="text-2xl font-bold text-purple-900">
-                  {data.alertsSummary.totalAlerts || 0}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Alerts List */}
-      {data.alerts && (
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Active Alerts</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current Level</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Threshold</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiry Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {data.alerts?.map((alert) => (
-                  <tr key={alert.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {alert.itemName}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {alert.type}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {alert.currentLevel}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {alert.threshold}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {alert.expiryDate ? new Date(alert.expiryDate).toLocaleDateString() : 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        alert.priority === 'High' ? 'bg-red-100 text-red-800' :
-                        alert.priority === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-green-100 text-green-800'
-                      }`}>
-                        {alert.priority}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
 
   const renderEmptyState = () => (
     <div className="text-center py-12">
@@ -573,12 +335,8 @@ const InventoryReports = () => {
     switch (activeReport) {
       case 'stock-levels':
         return renderStockLevels();
-      case 'wastage':
-        return renderWastage();
       case 'movements':
         return renderMovements();
-      case 'alerts':
-        return renderAlerts();
       default:
         return renderStockLevels();
     }
@@ -594,7 +352,7 @@ const InventoryReports = () => {
         onCustomDateChange={handleCustomDateChange}
         onExport={exportReport}
         title="Inventory Reports"
-        subtitle="Stock levels, wastage, and inventory management"
+        subtitle="Stock levels and inventory management"
       />
 
       {/* Report Type Selection */}

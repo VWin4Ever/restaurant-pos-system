@@ -19,9 +19,9 @@ export const SettingsProvider = ({ children }) => {
       address: '123 Main Street, City, State 12345',
       phone: '+1 (555) 123-4567',
       email: 'info@restaurant.com',
-      taxRate: 8.5,
+      taxRate: 10.0, // Updated to 10% as requested
       currency: 'USD',
-      timezone: 'America/New_York'
+      timezone: 'Asia/Phnom_Penh' // Updated to Cambodia timezone
     },
     system: {
       autoRefreshInterval: 30,
@@ -44,10 +44,14 @@ export const SettingsProvider = ({ children }) => {
   const fetchSettings = async () => {
     try {
       const response = await axios.get('/api/settings');
-      setSettings(response.data.data);
+      const fetchedSettings = response.data.data;
+      console.log('Settings fetched:', fetchedSettings);
+      console.log('Tax Rate from settings:', fetchedSettings.business?.taxRate);
+      setSettings(fetchedSettings);
     } catch (error) {
       console.error('Failed to fetch settings:', error);
       // Don't show error toast for initial load
+      // Keep using default settings from state
     } finally {
       setLoading(false);
     }
@@ -80,7 +84,11 @@ export const SettingsProvider = ({ children }) => {
   };
 
   // Helper functions for common operations
-  const getTaxRate = () => settings.business?.taxRate || 0;
+  const getTaxRate = () => {
+    const taxRate = settings.business?.taxRate;
+    // Return taxRate if it's a number, otherwise default to 8.5
+    return typeof taxRate === 'number' ? taxRate : 8.5;
+  };
   const getCurrency = () => settings.business?.currency || 'USD';
   const getRestaurantName = () => settings.business?.restaurantName || 'Restaurant POS';
   const getTimezone = () => settings.business?.timezone || 'UTC';

@@ -1,11 +1,32 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../utils/database');
 const { requirePermission, getUserPermissions, getAvailablePermissions } = require('../middleware/permissions');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+
+// Track user login
+router.post('/:id/login', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    await prisma.user.update({
+      where: { id: parseInt(id) },
+      data: {
+        lastLogin: new Date(),
+        loginCount: {
+          increment: 1
+        }
+      }
+    });
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error tracking login:', error);
+    res.status(500).json({ success: false, message: 'Failed to track login' });
+  }
+});
 
 // Get all users
 router.get('/', requirePermission('users.view'), async (req, res) => {
@@ -15,7 +36,7 @@ router.get('/', requirePermission('users.view'), async (req, res) => {
       limit = 20, 
       search = '', 
       role = '', 
-      status = '' 
+      status = ''
     } = req.query;
 
     const pageNum = parseInt(page);
@@ -57,11 +78,32 @@ router.get('/', requirePermission('users.view'), async (req, res) => {
         email: true,
         role: true,
         isActive: true,
+        lastLogin: true,
+        loginCount: true,
+        createdBy: true,
         createdAt: true,
         updatedAt: true,
+        shiftId: true,
+        shift: {
+          select: {
+            id: true,
+            name: true,
+            startTime: true,
+            endTime: true,
+            gracePeriod: true,
+            isActive: true
+          }
+        },
         permissions: {
           select: {
             permission: true
+          }
+        },
+        creator: {
+          select: {
+            id: true,
+            name: true,
+            username: true
           }
         }
       },
@@ -213,6 +255,7 @@ router.post('/', requirePermission('users.create'), [
         name,
         email,
         role,
+        createdBy: req.user.id, // Track who created this user
         permissions: {
           create: permissions.map(permission => ({
             permission: permission
@@ -493,6 +536,73 @@ router.delete('/:id', requirePermission('users.delete'), async (req, res) => {
       success: false,
       message: 'Failed to delete user'
     });
+  }
+});
+
+// Export users to CSV
+router.get('/export', requirePermission('users.view'), async (req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        lastLogin: true,
+        loginCount: true,
+        createdAt: true,
+        shiftId: true,
+        shift: {
+          select: {
+            id: true,
+            name: true,
+            startTime: true,
+            endTime: true,
+            gracePeriod: true,
+            isActive: true
+          }
+        },
+        creator: {
+          select: {
+            name: true,
+            username: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Create CSV content
+    const csvHeader = 'ID,Username,Name,Email,Role,Status,Last Login,Login Count,Created At,Created By\n';
+    const csvRows = users.map(user => {
+      const lastLogin = user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never';
+      const status = user.isActive ? 'Active' : 'Inactive';
+      const createdBy = user.creator ? `${user.creator.name} (${user.creator.username})` : 'System';
+      
+      return [
+        user.id,
+        user.username,
+        `"${user.name}"`,
+        user.email || '',
+        user.role,
+        status,
+        lastLogin,
+        user.loginCount,
+        new Date(user.createdAt).toLocaleString(),
+        `"${createdBy}"`
+      ].join(',');
+    }).join('\n');
+
+    const csvContent = csvHeader + csvRows;
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="users_export_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(csvContent);
+  } catch (error) {
+    console.error('Error exporting users:', error);
+    res.status(500).json({ success: false, message: 'Failed to export users' });
   }
 });
 

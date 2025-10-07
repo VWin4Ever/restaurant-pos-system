@@ -18,9 +18,9 @@ router.get('/', async (req, res) => {
       };
     }
 
-    // Only show stock for drinks
+    // Only show stock for products that need stock tracking
     where.product = {
-      isDrink: true
+      needStock: true
     };
 
     const stock = await prisma.stock.findMany({
@@ -142,10 +142,10 @@ router.post('/add', [
       });
     }
 
-    if (!product.isDrink) {
+    if (!product.needStock) {
       return res.status(400).json({
         success: false,
-        message: 'Stock can only be managed for drinks'
+        message: 'Stock can only be managed for products that need stock tracking'
       });
     }
 
@@ -450,10 +450,10 @@ router.get('/logs', async (req, res) => {
       if (endDate) where.createdAt.lte = new Date(endDate);
     }
 
-    // Only show logs for drinks
+    // Only show logs for products that need stock tracking
     where.stock = {
       product: {
-        isDrink: true
+        needStock: true
       }
     };
 
@@ -508,7 +508,7 @@ router.get('/alerts/low-stock', async (req, res) => {
           lte: prisma.stock.fields.minStock
         },
         product: {
-          isDrink: true
+          needStock: true
         }
       },
       include: {

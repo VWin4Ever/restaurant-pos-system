@@ -1,13 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import LoadingSpinner from '../common/LoadingSpinner';
 import Icon from '../common/Icon';
+import IconTest from '../common/IconTest';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Dashboard = () => {
+  const { user } = useAuth();
   const [stats, setStats] = useState(null);
+  const [monthlyStats, setMonthlyStats] = useState(null);
   const [salesData, setSalesData] = useState([]);
   const [topProducts, setTopProducts] = useState([]);
   const [lowStockAlerts, setLowStockAlerts] = useState([]);
@@ -15,77 +19,91 @@ const Dashboard = () => {
   const [categorySales, setCategorySales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [timeRange, setTimeRange] = useState('today');
   const navigate = useNavigate();
 
   const COLORS = ['#6B2C2F', '#E74C3C', '#F39C12', '#27AE60', '#3498DB', '#9B59B6'];
 
-  useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        // Fetch dashboard data with individual error handling
-        const fetchData = async (url, fallback = []) => {
-          try {
-            const response = await axios.get(url);
-            return response.data.data;
-          } catch (err) {
-            console.warn(`Failed to fetch ${url}:`, err.message);
-            return fallback;
-          }
-        };
-
-        // Fetch all dashboard data with individual error handling
-        const [
-          statsData,
-          salesData,
-          topProductsData,
-          lowStockData,
-          hourlySalesData,
-          categorySalesData
-        ] = await Promise.allSettled([
-          fetchData(`/api/reports/dashboard?range=${timeRange}`, {}),
-          fetchData(`/api/reports/sales?range=${timeRange}`, []),
-          fetchData('/api/reports/top-products?limit=5', []),
-          fetchData('/api/reports/inventory/low-stock-alert', []),
-          fetchData('/api/reports/sales/peak-hours', []),
-          fetchData('/api/reports/sales/category-sales', [])
-        ]);
-
-        // Set data with fallbacks
-        setStats(statsData.status === 'fulfilled' ? statsData.value : {});
-        setSalesData(salesData.status === 'fulfilled' ? salesData.value : []);
-        setTopProducts(topProductsData.status === 'fulfilled' ? topProductsData.value : []);
-        setLowStockAlerts(lowStockData.status === 'fulfilled' ? lowStockData.value : []);
-        setHourlySales(hourlySalesData.status === 'fulfilled' ? hourlySalesData.value : []);
-        setCategorySales(categorySalesData.status === 'fulfilled' ? categorySalesData.value : []);
-
-        // Check if any critical data failed
-        const failedRequests = [
-          statsData.status === 'rejected',
-          salesData.status === 'rejected',
-          topProductsData.status === 'rejected',
-          lowStockData.status === 'rejected',
-          hourlySalesData.status === 'rejected',
-          categorySalesData.status === 'rejected'
-        ].filter(Boolean);
-
-        if (failedRequests.length > 0) {
-          console.warn(`${failedRequests.length} dashboard requests failed`);
+  const fetchDashboard = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Fetch dashboard data with individual error handling
+      const fetchData = async (url, fallback = []) => {
+        try {
+          const response = await axios.get(url);
+          return response.data.data;
+        } catch (err) {
+          console.warn(`Failed to fetch ${url}:`, err.message);
+          return fallback;
         }
+      };
 
-      } catch (err) {
-        console.error('Dashboard fetch error:', err);
-        setError('Failed to load dashboard data');
-        toast.error('Some dashboard data could not be loaded');
-      } finally {
-        setLoading(false);
+      // Role-based dashboard data fetching
+      const isCashier = user?.role === 'CASHIER';
+      
+      // Fetch all dashboard data - TODAY's data with 7-day trend for context
+      const [
+        statsData,
+        monthlySalesData,
+        salesData,
+        topProductsData,
+        lowStockData,
+        hourlySalesData,
+        categorySalesData
+      ] = await Promise.all([
+        // Use cashier-specific dashboard for cashiers, general dashboard for admins
+        fetchData(isCashier ? '/api/reports/cashier-dashboard' : `/api/reports/dashboard?range=today`, {}),
+        fetchData(`/api/reports/dashboard?range=month`, {}), // Full month sales
+        fetchData(isCashier ? '/api/reports/cashier-sales?range=week' : `/api/reports/sales?range=week`, []), // Last 7 days for trend
+        // Use cashier-specific endpoints for cashiers
+        fetchData(isCashier ? '/api/reports/cashier-top-products?range=today&limit=5' : '/api/reports/top-products?range=today&limit=5', []),
+        fetchData('/api/reports/inventory/low-stock-alert', []),
+        fetchData('/api/reports/sales/peak-hours?range=today', []),
+        fetchData('/api/reports/sales/category-sales?range=today', [])
+      ]);
+
+      // Set data
+      setStats(statsData || {});
+      setMonthlyStats(monthlySalesData || {});
+      setSalesData(salesData || []);
+      setTopProducts(topProductsData || []);
+      setLowStockAlerts(lowStockData || []);
+      
+      // Fix data structure for hourly sales
+      if (hourlySalesData && hourlySalesData.hourlySales) {
+        setHourlySales(hourlySalesData.hourlySales);
+      } else {
+        setHourlySales([]);
       }
-    };
+      
+      // Fix data structure for category sales
+      if (categorySalesData && categorySalesData.categorySales) {
+        setCategorySales(categorySalesData.categorySales);
+      } else {
+        setCategorySales([]);
+      }
+
+    } catch (err) {
+      console.error('Dashboard fetch error:', err);
+      setError('Failed to load dashboard data');
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  // Initial fetch and auto-refresh every 2 minutes (reduced frequency)
+  useEffect(() => {
     fetchDashboard();
-  }, [timeRange]);
+    
+    // Auto-refresh for real-time dashboard (reduced from 30s to 2 minutes)
+    const interval = setInterval(() => {
+      fetchDashboard();
+    }, 120000); // 2 minutes instead of 30 seconds
+    
+    return () => clearInterval(interval);
+  }, [fetchDashboard]);
 
   if (loading) return <LoadingSpinner />;
   if (error) return (
@@ -98,30 +116,53 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6 sm:space-y-8">
-      {/* Time Range Selector */}
+      {/* Dashboard Header */}
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gradient">Dashboard</h1>
-        <select 
-          value={timeRange} 
-          onChange={(e) => setTimeRange(e.target.value)}
-          className="select-primary"
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Restaurant Dashboard</h1>
+          <p className="text-gray-600 mt-1">
+            {user?.role === 'CASHIER' 
+              ? `Welcome back, ${user?.name}! Here's your performance today.`
+              : 'Real-time overview of restaurant operations'
+            }
+          </p>
+        </div>
+        <button
+          onClick={() => navigate('/orders', { state: { openCreateModal: true } })}
+          className="btn-primary flex items-center gap-2 hover:scale-105 transition-transform"
         >
-          <option value="today">Today</option>
-          <option value="yesterday">Yesterday</option>
-          <option value="week">This Week</option>
-          <option value="lastWeek">Last Week</option>
-          <option value="month">This Month</option>
-        </select>
+          <Icon name="add" className="w-5 h-5" />
+          <span>Create New Order</span>
+        </button>
       </div>
 
-      {/* Key Metrics Grid */}
+      {/* Key Metrics Grid - Today's Performance */}
+      {/* Custom Icons Test - Temporary */}
+      <IconTest />
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <StatCard 
-          title="Total Sales" 
-          value={formatCurrency(stats?.todaySales?.total || 0)} 
+          title="Today's Sales" 
+          value={formatCurrency(stats?.todaySales?.total || stats?.mySalesToday || 0)} 
           icon="money" 
           color="primary" 
-          subtitle={`${stats?.todaySales?.count || 0} orders`}
+          subtitle={user?.role === 'CASHIER' 
+            ? `${stats?.myOrdersToday || 0} orders completed` 
+            : `${stats?.todaySales?.count || 0} completed orders`
+          }
+        />
+        <StatCard 
+          title="Monthly Sales" 
+          value={user?.role === 'CASHIER' 
+            ? (stats?.myOrdersToday || 0) 
+            : formatCurrency(monthlyStats?.todaySales?.total || 0)
+          } 
+          icon={user?.role === 'CASHIER' ? "orders" : "reports"} 
+          color="accent" 
+          subtitle={user?.role === 'CASHIER' 
+            ? "Orders I've processed" 
+            : `${monthlyStats?.todaySales?.count || 0} orders this month`
+          }
         />
         <StatCard 
           title="Pending Orders" 
@@ -130,7 +171,7 @@ const Dashboard = () => {
           color="warning" 
           onClick={() => navigate('/orders')} 
           clickable 
-          subtitle="Need attention"
+          subtitle="Awaiting payment"
         />
         <StatCard 
           title="Available Tables" 
@@ -139,22 +180,15 @@ const Dashboard = () => {
           color="success" 
           onClick={() => navigate('/tables')} 
           clickable 
-          subtitle="Ready for customers"
-        />
-        <StatCard 
-          title="Average Order" 
-          value={formatCurrency(stats?.averageOrder || 0)} 
-          icon="reports" 
-          color="accent" 
-          subtitle="Per transaction"
+          subtitle="Ready for service"
         />
       </div>
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Sales Trend Chart */}
+        {/* Sales Trend Chart - Last 7 Days for Context */}
         <div className="bg-surface rounded-2xl p-4 sm:p-6 shadow-soft">
-          <h2 className="text-lg sm:text-xl font-bold mb-4">Sales Trend</h2>
+          <h2 className="text-lg sm:text-xl font-bold mb-4">Recent Sales Trend (7 Days)</h2>
           {salesData && salesData.length > 0 ? (
             <div className="w-full h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -171,9 +205,9 @@ const Dashboard = () => {
           )}
         </div>
 
-        {/* Category Sales Chart */}
+        {/* Category Sales Chart - Today's Distribution */}
         <div className="bg-surface rounded-2xl p-4 sm:p-6 shadow-soft">
-          <h2 className="text-lg sm:text-xl font-bold mb-4">Sales by Category</h2>
+          <h2 className="text-lg sm:text-xl font-bold mb-4">Today's Sales by Category</h2>
           {categorySales && categorySales.length > 0 ? (
             <div className="w-full h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -186,9 +220,9 @@ const Dashboard = () => {
                     label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                     outerRadius={80}
                     fill="#8884d8"
-                    dataKey="total"
+                    dataKey="revenue"
                   >
-                    {categorySales.map((entry, index) => (
+                    {categorySales?.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
@@ -197,14 +231,14 @@ const Dashboard = () => {
               </ResponsiveContainer>
             </div>
           ) : (
-            <div className="flex items-center justify-center h-40 text-gray-400 text-lg">No category data available.</div>
+            <div className="flex items-center justify-center h-40 text-gray-400 text-lg">No category data available for today.</div>
           )}
         </div>
       </div>
 
-      {/* Peak Hours Chart */}
+      {/* Peak Hours Chart - Today's Hourly Performance */}
       <div className="bg-surface rounded-2xl p-4 sm:p-6 shadow-soft">
-        <h2 className="text-lg sm:text-xl font-bold mb-4">Peak Hours</h2>
+        <h2 className="text-lg sm:text-xl font-bold mb-4">Today's Peak Hours</h2>
         {hourlySales && hourlySales.length > 0 ? (
           <div className="w-full h-48">
             <ResponsiveContainer width="100%" height="100%">
@@ -212,57 +246,40 @@ const Dashboard = () => {
                 <XAxis dataKey="hour" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip formatter={(value) => formatCurrency(value)} />
-                <Bar dataKey="total" fill="#6B2C2F" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="revenue" fill="#6B2C2F" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         ) : (
-          <div className="flex items-center justify-center h-40 text-gray-400 text-lg">No hourly data available.</div>
+          <div className="flex items-center justify-center h-40 text-gray-400 text-lg">No hourly data available for today.</div>
         )}
       </div>
 
-      {/* Quick Actions and Alerts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Quick Actions */}
+      {/* Top Products and Alerts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Top Products - Today's Best Sellers */}
         <div className="bg-surface rounded-2xl p-4 sm:p-6 shadow-soft">
-          <h3 className="text-lg font-bold mb-4">Quick Actions</h3>
-          <div className="space-y-3">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold">Today's Top Products</h3>
             <button 
-              className="btn-primary w-full flex items-center justify-center transition-transform hover:scale-105" 
-              onClick={() => navigate('/orders')}
-            >
-              <Icon name="add" className="mr-2" /> New Order
-            </button>
-            <button 
-              className="btn-accent w-full flex items-center justify-center transition-transform hover:scale-105" 
-              onClick={() => navigate('/tables')}
-            >
-              <Icon name="tables" className="mr-2" /> Manage Tables
-            </button>
-            <button 
-              className="btn-secondary w-full flex items-center justify-center transition-transform hover:scale-105" 
-              onClick={() => navigate('/products')}
-            >
-              <Icon name="products" className="mr-2" /> View Products
-            </button>
-            <button 
-              className="btn-outline w-full flex items-center justify-center transition-transform hover:scale-105" 
+              className="text-primary text-sm hover:underline flex items-center gap-1"
               onClick={() => navigate('/reports')}
             >
-              <Icon name="reports" className="mr-2" /> View Reports
+              <span>View All</span>
+              <Icon name="chevronRight" className="w-4 h-4" />
             </button>
           </div>
-        </div>
-
-        {/* Top Products */}
-        <div className="bg-surface rounded-2xl p-4 sm:p-6 shadow-soft">
-          <h3 className="text-lg font-bold mb-4">Top Products</h3>
           <div className="space-y-3">
             {topProducts && topProducts.length > 0 ? (
               topProducts.slice(0, 5).map((product, index) => (
-                <div key={product.id} className="flex items-center justify-between p-3 bg-background rounded-xl">
+                <div key={product.id} className="flex items-center justify-between p-3 bg-background rounded-xl hover:bg-gray-50 transition-colors">
                   <div className="flex items-center space-x-3">
-                    <div className="w-6 h-6 rounded-full bg-primary text-white text-xs flex items-center justify-center font-bold">
+                    <div className={`w-6 h-6 rounded-full ${
+                      index === 0 ? 'bg-yellow-500' : 
+                      index === 1 ? 'bg-gray-400' : 
+                      index === 2 ? 'bg-orange-600' : 
+                      'bg-primary'
+                    } text-white text-xs flex items-center justify-center font-bold`}>
                       {index + 1}
                     </div>
                     <div>
@@ -279,7 +296,7 @@ const Dashboard = () => {
             ) : (
               <div className="text-center text-gray-400 py-8">
                 <Icon name="products" className="w-8 h-8 mx-auto mb-2" />
-                <div className="text-sm">No product data available</div>
+                <div className="text-sm">No sales today yet</div>
               </div>
             )}
           </div>
@@ -287,21 +304,49 @@ const Dashboard = () => {
 
         {/* Low Stock Alerts */}
         <div className="bg-surface rounded-2xl p-4 sm:p-6 shadow-soft">
-          <h3 className="text-lg font-bold mb-4">Low Stock Alerts</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold">Low Stock Alerts</h3>
+            {lowStockAlerts && lowStockAlerts.length > 0 && (
+              <button 
+                className="text-warning text-sm hover:underline flex items-center gap-1"
+                onClick={() => navigate('/stock')}
+              >
+                <span>Manage Stock</span>
+                <Icon name="chevronRight" className="w-4 h-4" />
+              </button>
+            )}
+          </div>
           <div className="space-y-3">
             {lowStockAlerts && lowStockAlerts.length > 0 ? (
               lowStockAlerts.slice(0, 5).map((alert) => (
-                <div key={alert.id} className="flex items-center justify-between p-3 bg-warning/10 border border-warning/20 rounded-xl">
+                <div 
+                  key={alert.id} 
+                  className={`flex items-center justify-between p-3 rounded-xl cursor-pointer hover:scale-[1.02] transition-all ${
+                    alert.alertLevel === 'Critical' 
+                      ? 'bg-error/10 border border-error/30' 
+                      : 'bg-warning/10 border border-warning/20'
+                  }`}
+                  onClick={() => navigate('/stock')}
+                >
                   <div className="flex items-center space-x-3">
-                    <Icon name="warning" className="text-warning" />
+                    <Icon 
+                      name={alert.alertLevel === 'Critical' ? 'error' : 'warning'} 
+                      className={alert.alertLevel === 'Critical' ? 'text-error' : 'text-warning'} 
+                    />
                     <div>
                       <div className="font-medium text-sm">{alert.productName}</div>
-                      <div className="text-xs text-gray-500">Current: {alert.currentStock}</div>
+                      <div className="text-xs text-gray-500">
+                        Current: {alert.currentStock} • Min: {alert.minStock}
+                      </div>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs text-warning font-bold">Low Stock</div>
-                    <div className="text-xs text-gray-500">Min: {alert.minStock}</div>
+                    <div className={`text-xs font-bold ${alert.alertLevel === 'Critical' ? 'text-error' : 'text-warning'}`}>
+                      {alert.alertLevel}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Need: {alert.deficit}
+                    </div>
                   </div>
                 </div>
               ))
@@ -315,48 +360,16 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Recent Activity */}
-      <div className="bg-surface rounded-2xl p-4 sm:p-6 shadow-soft">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold">Recent Activity</h3>
-          <button 
-            className="text-primary text-sm hover:underline"
-            onClick={() => navigate('/reports')}
-          >
-            View All
-          </button>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <ActivityCard 
-            title="Orders Today"
-            value={stats?.todaySales?.count || 0}
-            icon="orders"
-            color="primary"
-            trend="+12%"
-          />
-          <ActivityCard 
-            title="Average Wait Time"
-            value="8 min"
-            icon="clock"
-            color="warning"
-            trend="-5%"
-          />
-          <ActivityCard 
-            title="Customer Satisfaction"
-            value="4.8/5"
-            icon="star"
-            color="success"
-            trend="+2%"
-          />
-        </div>
-      </div>
     </div>
   );
 };
 
 function formatCurrency(amount) {
   if (typeof amount !== 'number') amount = Number(amount) || 0;
-  return '$' + amount.toLocaleString();
+  return '$' + amount.toLocaleString(undefined, { 
+    minimumFractionDigits: 2, 
+    maximumFractionDigits: 2 
+  });
 }
 
 const StatCard = ({ title, value, icon, color, subtitle, onClick, clickable }) => {
@@ -371,13 +384,13 @@ const StatCard = ({ title, value, icon, color, subtitle, onClick, clickable }) =
     }
   };
 
-  const getEmoji = (icon) => {
+  const getIconName = (icon) => {
     switch (icon) {
-      case 'money': return '💰';
-      case 'clock': return '⏳';
-      case 'tables': return '🪑';
-      case 'reports': return '📊';
-      default: return '📈';
+      case 'money': return 'money';
+      case 'clock': return 'clock';
+      case 'tables': return 'tables';
+      case 'reports': return 'reports';
+      default: return 'trending-up';
     }
   };
 
@@ -396,25 +409,12 @@ const StatCard = ({ title, value, icon, color, subtitle, onClick, clickable }) =
           <p className="text-3xl font-bold">{value}</p>
           {subtitle && <p className="text-xs opacity-75 mt-1">{subtitle}</p>}
         </div>
-        <div className="text-4xl">{getEmoji(icon)}</div>
+        <div className="text-4xl">
+          <Icon name={getIconName(icon)} size="2xl" color="white" />
+        </div>
       </div>
     </div>
   );
 };
-
-const ActivityCard = ({ title, value, icon, color, trend }) => (
-  <div className="bg-background rounded-xl p-4 border border-surface">
-    <div className="flex items-center justify-between mb-2">
-      <div className={`w-8 h-8 rounded-full bg-${color} text-white flex items-center justify-center`}>
-        <Icon name={icon} />
-      </div>
-      <span className={`text-xs font-bold ${trend.startsWith('+') ? 'text-success' : 'text-error'}`}>
-        {trend}
-      </span>
-    </div>
-    <div className="text-lg font-bold">{value}</div>
-    <div className="text-xs text-gray-500">{title}</div>
-  </div>
-);
 
 export default Dashboard; 

@@ -45,10 +45,12 @@ const systemSchema = yup.object({
   maxTables: yup.number().min(1).max(100).required('Maximum tables is required'),
   enableNotifications: yup.boolean(),
   enableAutoBackup: yup.boolean(),
-  backupFrequency: yup.string().when('enableAutoBackup', {
-    is: true,
-    then: yup.string().required('Backup frequency is required when auto backup is enabled'),
-    otherwise: yup.string().optional()
+  backupFrequency: yup.string().test('backup-frequency-required', 'Backup frequency is required when auto backup is enabled', function(value) {
+    const { enableAutoBackup } = this.parent;
+    if (enableAutoBackup && !value) {
+      return this.createError({ message: 'Backup frequency is required when auto backup is enabled' });
+    }
+    return true;
   })
 }).required();
 
@@ -68,8 +70,12 @@ const Settings = () => {
   const [saving, setSaving] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [showBackupDialog, setShowBackupDialog] = useState(false);
+  const [showRestoreDialog, setShowRestoreDialog] = useState(false);
   const [backupLoading, setBackupLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const [restoreLoading, setRestoreLoading] = useState(false);
+  const [backupStatus, setBackupStatus] = useState(null);
+  const [backupFile, setBackupFile] = useState(null);
 
   const businessForm = useForm({
     resolver: yupResolver(businessSchema),
@@ -78,9 +84,9 @@ const Settings = () => {
       address: '',
       phone: '',
       email: '',
-      taxRate: 0,
+      taxRate: 10.0, // Updated to 10% as requested
       currency: 'USD',
-      timezone: 'UTC'
+      timezone: 'Asia/Phnom_Penh' // Updated to Cambodia timezone
     }
   });
 
@@ -141,6 +147,11 @@ const Settings = () => {
     }
   }, [settingsLoading, globalSettings, businessForm, systemForm, securityForm]);
 
+  // Fetch backup status
+  useEffect(() => {
+    fetchBackupStatus();
+  }, []);
+
   const saveBusinessSettings = async (data) => {
     setSaving(true);
     try {
@@ -174,8 +185,9 @@ const Settings = () => {
     try {
       await axios.put('/api/settings/system', data);
       toast.success('System settings saved successfully!');
-      // Refresh global settings
+      // Refresh global settings and backup status
       await fetchGlobalSettings();
+      await fetchBackupStatus();
     } catch (error) {
       console.error('Failed to save system settings:', error);
       toast.error('Failed to save system settings');
@@ -199,6 +211,7 @@ const Settings = () => {
     }
   };
 
+
   const resetToDefaults = async () => {
     setResetLoading(true);
     try {
@@ -217,33 +230,85 @@ const Settings = () => {
     }
   };
 
+  const fetchBackupStatus = async () => {
+    try {
+      const response = await axios.get('/api/settings/backup/status');
+      setBackupStatus(response.data.data);
+    } catch (error) {
+      console.error('Failed to fetch backup status:', error);
+    }
+  };
+
   const createBackup = async () => {
     setBackupLoading(true);
     try {
-      const response = await axios.post('/api/settings/backup');
+      const response = await axios.post('/api/settings/backup', {});
       
-      if (!response.data.data) {
-        throw new Error('No backup data received');
-      }
+      // Handle the new response format
+      const { backupFile, backupPath, backupSizeMB } = response.data;
       
-      toast.success('Backup created successfully!');
+      toast.success(`Database backup created successfully! Saved to: ${backupFile} (${backupSizeMB} MB)`);
       setShowBackupDialog(false);
       
-      // Download backup file
-      const blob = new Blob([JSON.stringify(response.data.data, null, 2)], {
-        type: 'application/json'
-      });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `pos-backup-${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      // Refresh backup status
+      await fetchBackupStatus();
     } catch (error) {
       console.error('Failed to create backup:', error);
-      toast.error('Failed to create backup');
+      if (error.response?.data?.message) {
+        toast.error('Failed to create backup: ' + error.response.data.message);
+      } else {
+        toast.error('Failed to create backup');
+      }
     } finally {
       setBackupLoading(false);
+    }
+  };
+
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      setBackupFile(file);
+    }
+  };
+
+  const restoreFromBackup = async () => {
+    if (!backupFile) {
+      toast.error('Please select a backup file');
+      return;
+    }
+
+    setRestoreLoading(true);
+    try {
+      const fileContent = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = reject;
+        reader.readAsText(backupFile);
+      });
+
+      const backupData = JSON.parse(fileContent);
+      
+      const response = await axios.post('/api/settings/restore', {
+        backupData
+      });
+      
+      if (response.data.success) {
+        toast.success('System restored successfully!');
+        setShowRestoreDialog(false);
+        setBackupFile(null);
+        
+        // Refresh all data
+        await fetchGlobalSettings();
+        await fetchBackupStatus();
+        
+        // Refresh the page to reload all data
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Failed to restore backup:', error);
+      toast.error('Failed to restore backup: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setRestoreLoading(false);
     }
   };
 
@@ -253,18 +318,36 @@ const Settings = () => {
     { code: 'GBP', name: 'British Pound (£)' },
     { code: 'JPY', name: 'Japanese Yen (¥)' },
     { code: 'CAD', name: 'Canadian Dollar (C$)' },
-    { code: 'AUD', name: 'Australian Dollar (A$)' }
+    { code: 'AUD', name: 'Australian Dollar (A$)' },
+    { code: 'KHR', name: 'Cambodian Riel (៛)' },
+    { code: 'THB', name: 'Thai Baht (฿)' },
+    { code: 'VND', name: 'Vietnamese Dong (₫)' },
+    { code: 'SGD', name: 'Singapore Dollar (S$)' },
+    { code: 'MYR', name: 'Malaysian Ringgit (RM)' },
+    { code: 'IDR', name: 'Indonesian Rupiah (Rp)' },
+    { code: 'PHP', name: 'Philippine Peso (₱)' },
+    { code: 'CNY', name: 'Chinese Yuan (¥)' },
+    { code: 'KRW', name: 'South Korean Won (₩)' }
   ];
 
   const timezones = [
     { value: 'UTC', name: 'UTC (Coordinated Universal Time)' },
-    { value: 'America/New_York', name: 'Eastern Time (ET)' },
-    { value: 'America/Chicago', name: 'Central Time (CT)' },
-    { value: 'America/Denver', name: 'Mountain Time (MT)' },
-    { value: 'America/Los_Angeles', name: 'Pacific Time (PT)' },
-    { value: 'Europe/London', name: 'London (GMT)' },
-    { value: 'Europe/Paris', name: 'Paris (CET)' },
-    { value: 'Asia/Tokyo', name: 'Tokyo (JST)' }
+    { value: 'Asia/Phnom_Penh', name: 'Cambodia (ICT) 🇰🇭' },
+    { value: 'Asia/Bangkok', name: 'Thailand (ICT) 🇹🇭' },
+    { value: 'Asia/Ho_Chi_Minh', name: 'Vietnam (ICT) 🇻🇳' },
+    { value: 'Asia/Singapore', name: 'Singapore (SGT) 🇸🇬' },
+    { value: 'Asia/Kuala_Lumpur', name: 'Malaysia (MYT) 🇲🇾' },
+    { value: 'Asia/Jakarta', name: 'Indonesia (WIB) 🇮🇩' },
+    { value: 'Asia/Manila', name: 'Philippines (PHT) 🇵🇭' },
+    { value: 'Asia/Shanghai', name: 'China (CST) 🇨🇳' },
+    { value: 'Asia/Seoul', name: 'South Korea (KST) 🇰🇷' },
+    { value: 'Asia/Tokyo', name: 'Japan (JST) 🇯🇵' },
+    { value: 'America/New_York', name: 'Eastern Time (ET) 🇺🇸' },
+    { value: 'America/Chicago', name: 'Central Time (CT) 🇺🇸' },
+    { value: 'America/Denver', name: 'Mountain Time (MT) 🇺🇸' },
+    { value: 'America/Los_Angeles', name: 'Pacific Time (PT) 🇺🇸' },
+    { value: 'Europe/London', name: 'London (GMT) 🇬🇧' },
+    { value: 'Europe/Paris', name: 'Paris (CET) 🇫🇷' }
   ];
 
   if (loading || settingsLoading) {
@@ -273,8 +356,6 @@ const Settings = () => {
 
   return (
     <div className="space-y-6">
-
-
       {/* Tab Navigation */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="border-b border-gray-200">
@@ -324,13 +405,22 @@ const Settings = () => {
             {/* Action Buttons */}
             <div className="flex items-center space-x-3">
               {hasPermission('settings.backup') && (
-                <button
-                  onClick={() => setShowBackupDialog(true)}
-                  className="btn-secondary flex items-center space-x-2"
-                >
-                  <Icon name="backup" size="sm" />
-                  <span>Create Backup</span>
-                </button>
+                <>
+                  <button
+                    onClick={() => setShowBackupDialog(true)}
+                    className="btn-secondary flex items-center space-x-2"
+                  >
+                    <Icon name="backup" size="sm" />
+                    <span>Create Backup</span>
+                  </button>
+                  <button
+                    onClick={() => setShowRestoreDialog(true)}
+                    className="btn-secondary flex items-center space-x-2"
+                  >
+                    <Icon name="restore" size="sm" />
+                    <span>Restore Backup</span>
+                  </button>
+                </>
               )}
               {hasPermission('settings.reset') && (
                 <button
@@ -344,6 +434,63 @@ const Settings = () => {
             </div>
           </div>
         </div>
+
+        {/* Backup Status Dashboard */}
+        {backupStatus && (
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200 p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-8">
+                <div className="flex items-center space-x-3">
+                  <div className={`w-4 h-4 rounded-full flex items-center justify-center ${backupStatus.autoBackup?.enabled ? 'bg-green-500' : 'bg-gray-400'}`}>
+                    {backupStatus.autoBackup?.enabled && (
+                      <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-700">
+                      Auto-backup: {backupStatus.autoBackup?.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                    {backupStatus.autoBackup?.enabled && (
+                      <span className="ml-2 px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">
+                        {backupStatus.autoBackup.frequency}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
+                {backupStatus.lastBackup && (
+                  <div className="flex items-center space-x-2">
+                    <Icon name="backup" size="sm" className="text-gray-500" />
+                    <div>
+                      <span className="text-sm text-gray-600">Last backup:</span>
+                      <span className="ml-1 text-sm font-medium text-gray-700">
+                        {new Date(backupStatus.lastBackup.created).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="flex items-center space-x-2">
+                  <Icon name="database" size="sm" className="text-gray-500" />
+                  <div>
+                    <span className="text-sm text-gray-600">Total:</span>
+                    <span className="ml-1 text-sm font-medium text-gray-700">
+                      {backupStatus.backupCount} backups ({backupStatus.totalSize})
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              <button
+                onClick={fetchBackupStatus}
+                className="flex items-center space-x-2 px-3 py-2 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
+              >
+                <Icon name="refresh" size="sm" />
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Tab Content */}
         <div className="p-6">
@@ -511,7 +658,24 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="flex justify-end">
+
+                <div className="flex justify-between items-center pt-6 border-t border-gray-200">
+                  <div className="flex items-center space-x-2">
+                    {businessForm.formState.isValid ? (
+                      <div className="flex items-center space-x-2 text-green-600">
+                        <Icon name="check" size="sm" />
+                        <span className="text-sm font-medium">All fields valid</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-2 text-amber-600">
+                        <Icon name="warning" size="sm" />
+                        <span className="text-sm font-medium">
+                          {Object.keys(businessForm.formState.errors).length} validation error(s)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  
                   <button
                     type="submit"
                     disabled={saving || !businessForm.formState.isValid}
@@ -523,7 +687,10 @@ const Settings = () => {
                         <span>Saving...</span>
                       </div>
                     ) : (
-                      'Save Business Settings'
+                      <div className="flex items-center space-x-2">
+                        <Icon name="save" size="sm" />
+                        <span>Save Business Settings</span>
+                      </div>
                     )}
                   </button>
                 </div>
@@ -651,7 +818,23 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex justify-between items-center pt-6 border-t border-gray-200">
+                  <div className="flex items-center space-x-2">
+                    {systemForm.formState.isValid ? (
+                      <div className="flex items-center space-x-2 text-green-600">
+                        <Icon name="check" size="sm" />
+                        <span className="text-sm font-medium">All fields valid</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-2 text-amber-600">
+                        <Icon name="warning" size="sm" />
+                        <span className="text-sm font-medium">
+                          {Object.keys(systemForm.formState.errors).length} validation error(s)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  
                   <button
                     type="submit"
                     disabled={saving}
@@ -663,7 +846,10 @@ const Settings = () => {
                         <span>Saving...</span>
                       </div>
                     ) : (
-                      'Save System Settings'
+                      <div className="flex items-center space-x-2">
+                        <Icon name="save" size="sm" />
+                        <span>Save System Settings</span>
+                      </div>
                     )}
                   </button>
                 </div>
@@ -783,7 +969,23 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex justify-between items-center pt-6 border-t border-gray-200">
+                  <div className="flex items-center space-x-2">
+                    {securityForm.formState.isValid ? (
+                      <div className="flex items-center space-x-2 text-green-600">
+                        <Icon name="check" size="sm" />
+                        <span className="text-sm font-medium">All fields valid</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-2 text-amber-600">
+                        <Icon name="warning" size="sm" />
+                        <span className="text-sm font-medium">
+                          {Object.keys(securityForm.formState.errors).length} validation error(s)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  
                   <button
                     type="submit"
                     disabled={saving}
@@ -795,13 +997,17 @@ const Settings = () => {
                         <span>Saving...</span>
                       </div>
                     ) : (
-                      'Save Security Settings'
+                      <div className="flex items-center space-x-2">
+                        <Icon name="save" size="sm" />
+                        <span>Save Security Settings</span>
+                      </div>
                     )}
                   </button>
                 </div>
               </form>
             </div>
           )}
+
         </div>
       </div>
 
@@ -822,8 +1028,8 @@ const Settings = () => {
       {/* Backup Dialog */}
       <ConfirmDialog
         open={showBackupDialog}
-        title="Create System Backup"
-        message="This will create a backup of all system settings and data. The backup file will be downloaded automatically."
+        title="Create Database Backup"
+        message="This will create a full SQL database backup and save it to the configured backup directory. The backup file will be stored locally on the server."
         confirmText={backupLoading ? "Creating..." : "Create Backup"}
         cancelText="Cancel"
         icon="backup"
@@ -831,6 +1037,45 @@ const Settings = () => {
         onConfirm={createBackup}
         onCancel={() => setShowBackupDialog(false)}
         loading={backupLoading}
+      />
+
+      {/* Restore Dialog */}
+      <ConfirmDialog
+        open={showRestoreDialog}
+        title="Restore from Backup"
+        message={
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              This will restore all system data from a backup file. <strong>This action cannot be undone and will replace all current data.</strong>
+            </p>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Select Backup File
+              </label>
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleFileUpload}
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+              {backupFile && (
+                <p className="text-sm text-green-600">
+                  Selected: {backupFile.name}
+                </p>
+              )}
+            </div>
+          </div>
+        }
+        confirmText={restoreLoading ? "Restoring..." : "Restore Backup"}
+        cancelText="Cancel"
+        icon="restore"
+        type="danger"
+        onConfirm={restoreFromBackup}
+        onCancel={() => {
+          setShowRestoreDialog(false);
+          setBackupFile(null);
+        }}
+        loading={restoreLoading}
       />
     </div>
   );

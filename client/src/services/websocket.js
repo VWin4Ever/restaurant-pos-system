@@ -1,15 +1,27 @@
+import { useState, useEffect } from 'react';
+
 class WebSocketService {
   constructor() {
     this.ws = null;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
-    this.reconnectDelay = 1000;
+    this.maxReconnectAttempts = 3; // Reduced from 5
+    this.reconnectDelay = 2000; // Increased from 1000ms
     this.listeners = new Map();
     this.isConnected = false;
+    this.lastConnectTime = 0;
+    this.connectionCooldown = 5000; // 5 seconds between connection attempts
   }
 
   connect(url = process.env.REACT_APP_WS_URL || 'ws://localhost:5000') {
     try {
+      // Check cooldown period
+      const now = Date.now();
+      if (now - this.lastConnectTime < this.connectionCooldown) {
+        console.log('WebSocket connection in cooldown, skipping...');
+        return;
+      }
+      this.lastConnectTime = now;
+
       // Close existing connection if any
       if (this.ws) {
         this.ws.close();
@@ -22,7 +34,7 @@ class WebSocketService {
         console.log('WebSocket connected');
         this.isConnected = true;
         this.reconnectAttempts = 0;
-        this.notifyListeners('connection', { status: 'connected' });
+        // No connection notifications - silent operation
       };
 
       this.ws.onmessage = (event) => {
@@ -37,7 +49,7 @@ class WebSocketService {
       this.ws.onclose = (event) => {
         console.log('WebSocket disconnected', event.code, event.reason);
         this.isConnected = false;
-        this.notifyListeners('connection', { status: 'disconnected' });
+        // No disconnection notifications - silent operation
         
         // Only attempt reconnect if it wasn't a manual close
         if (event.code !== 1000) {
@@ -47,7 +59,7 @@ class WebSocketService {
 
       this.ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        this.notifyListeners('error', error);
+        // No error notifications - silent operation
       };
 
     } catch (error) {
@@ -61,12 +73,18 @@ class WebSocketService {
       this.reconnectAttempts++;
       console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
       
+      // Exponential backoff with jitter
+      const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1) + Math.random() * 1000;
+      
       setTimeout(() => {
         this.connect();
-      }, this.reconnectDelay * this.reconnectAttempts);
+      }, delay);
     } else {
-      console.log('Max reconnection attempts reached');
-      this.notifyListeners('connection', { status: 'failed' });
+      console.log('Max reconnection attempts reached. Will retry in 30 seconds...');
+      // Reset attempts after 30 seconds for future reconnection (silent)
+      setTimeout(() => {
+        this.reconnectAttempts = 0;
+      }, 30000);
     }
   }
 
@@ -125,5 +143,34 @@ class WebSocketService {
 
 // Create singleton instance
 const websocketService = new WebSocketService();
+
+// React hook for WebSocket
+export const useWebSocket = () => {
+  const [socket, setSocket] = useState(null);
+  const [isConnected, setIsConnected] = useState(false);
+
+  useEffect(() => {
+    const handleConnect = () => {
+      setSocket(websocketService);
+      setIsConnected(true);
+    };
+
+    const handleDisconnect = () => {
+      setIsConnected(false);
+    };
+
+    websocketService.on('connect', handleConnect);
+    websocketService.on('disconnect', handleDisconnect);
+    
+    websocketService.connect();
+
+    return () => {
+      websocketService.off('connect', handleConnect);
+      websocketService.off('disconnect', handleDisconnect);
+    };
+  }, []);
+
+  return { socket, isConnected };
+};
 
 export default websocketService; 

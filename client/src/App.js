@@ -8,9 +8,14 @@ import axios from 'axios';
 import { API_BASE_URL } from './config';
 import websocketService from './services/websocket';
 
-// Components
+// Components - Lazy loaded for better performance
 import Login from './components/auth/Login';
 import Layout from './components/layout/Layout';
+import LoadingSpinner from './components/common/LoadingSpinner';
+import ErrorBoundary from './components/common/ErrorBoundary';
+import Shift from './components/shift/Shift';
+
+// Import components directly to avoid chunk loading issues with Recharts
 import Dashboard from './components/dashboard/Dashboard';
 import Orders from './components/orders/Orders';
 import Tables from './components/tables/Tables';
@@ -26,7 +31,6 @@ import InventoryReports from './components/reports/InventoryReports';
 import FinancialReports from './components/reports/FinancialReports';
 import Profile from './components/profile/Profile';
 import Settings from './components/settings/Settings';
-import LoadingSpinner from './components/common/LoadingSpinner';
 
 // Set up axios base URL
 axios.defaults.baseURL = API_BASE_URL;
@@ -105,14 +109,18 @@ function App() {
           <Route
             path="products"
             element={
-              hasPermission('products.view') ? <Products /> : <Navigate to="/dashboard" replace />
+              hasPermission('products.view') ? (
+                <Products />
+              ) : <Navigate to="/dashboard" replace />
             }
           />
           {/* Categories route: permission-based */}
           <Route
             path="categories"
             element={
-              hasPermission('categories.view') ? <Categories /> : <Navigate to="/dashboard" replace />
+              hasPermission('categories.view') ? (
+                <Categories />
+              ) : <Navigate to="/dashboard" replace />
             }
           />
           {/* Admin Only Routes */}
@@ -132,20 +140,32 @@ function App() {
               </ProtectedRoute>
             }
           />
-          {/* Reports Routes */}
+          <Route
+            path="shift"
+            element={
+              <ProtectedRoute allowedRoles={['ADMIN']}>
+                <Shift />
+              </ProtectedRoute>
+            }
+          />
+          {/* Reports Routes - Allow both ADMIN and CASHIER */}
           <Route
             path="reports"
             element={
-              <ProtectedRoute allowedRoles={['ADMIN']}>
-                <ReportsOverview />
+              <ProtectedRoute allowedRoles={['ADMIN', 'CASHIER']}>
+                <ErrorBoundary>
+                  <ReportsOverview />
+                </ErrorBoundary>
               </ProtectedRoute>
             }
           />
           <Route
             path="reports/sales"
             element={
-              <ProtectedRoute allowedRoles={['ADMIN']}>
-                <SalesReports />
+              <ProtectedRoute allowedRoles={['ADMIN', 'CASHIER']}>
+                <ErrorBoundary>
+                  <SalesReports />
+                </ErrorBoundary>
               </ProtectedRoute>
             }
           />

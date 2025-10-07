@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
@@ -9,21 +9,31 @@ import Icon from '../common/Icon';
 import { useSettings } from '../../contexts/SettingsContext';
 
 const schema = yup.object({
-  customerNote: yup.string().optional(),
   discount: yup.number().min(0).max(100).optional()
 }).required();
 
 const EditOrder = ({ order, onClose, onOrderUpdated }) => {
   const { calculateTax, formatCurrency } = useSettings();
+  
+  // Core state
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState('all');
   const [orderItems, setOrderItems] = useState([]);
+  const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [discountPercent, setDiscountPercent] = useState(0);
   const [error, setError] = useState(null);
+  
+  // UI state
+  const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [editingDiscount, setEditingDiscount] = useState(false);
+  const [discountPercent, setDiscountPercent] = useState(0);
+  const [showTableSelector, setShowTableSelector] = useState(false);
+  const [selectedTable, setSelectedTable] = useState(null);
+  
+  // Refs
+  const discountButtonRef = useRef(null);
 
   const {
     register,
@@ -37,9 +47,70 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
 
   const watchedDiscount = watch('discount', 0);
 
+  // Handle table change
+  const handleTableChange = async (newTable) => {
+    try {
+      setSubmitting(true);
+      
+      // Use the new table change endpoint
+      const response = await axios.patch(`/api/orders/${order.id}/table`, {
+        tableId: newTable.id
+      });
+      
+      // Update local state
+      setSelectedTable(newTable);
+      setShowTableSelector(false);
+      
+      // Update the order data with the response
+      onOrderUpdated(response.data.data);
+      
+    } catch (error) {
+      console.error('Failed to change table:', error);
+      if (error.response?.data?.message) {
+        setError(error.response.data.message);
+      } else {
+        setError('Failed to change table assignment');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Memoized calculations for better performance
+  const calculations = useMemo(() => {
+    const subtotal = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
+    const tax = calculateTax(subtotal);
+    const discount = (subtotal * discountPercent) / 100;
+    const total = subtotal + tax - discount;
+    
+    return {
+      subtotal: Math.round(subtotal * 100) / 100,
+      tax: Math.round(tax * 100) / 100,
+      discount: Math.round(discount * 100) / 100,
+      total: Math.round(total * 100) / 100
+    };
+  }, [orderItems, discountPercent, calculateTax]);
+
+  // Memoized filtered products for better performance
+  const filteredProducts = useMemo(() => {
+    if (!products.length) return [];
+    
+    return products.filter(product => {
+      const matchesCategory = selectedCategory === 'all' || product.category?.name === selectedCategory;
+      const matchesSearch = !searchTerm || 
+        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.description?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      return matchesCategory && matchesSearch;
+    });
+  }, [products, selectedCategory, searchTerm]);
+
   useEffect(() => {
-    if (order) {
+    if (order && order.id) {
       fetchData();
+    } else {
+      console.warn('EditOrder: No valid order provided');
+      setError('No order data available');
     }
   }, [order]);
 
@@ -47,18 +118,27 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
     setDiscountPercent(parseFloat(watchedDiscount) || 0);
   }, [watchedDiscount]);
 
-  const fetchData = async () => {
+  // Optimized data fetching
+  const fetchData = useCallback(async () => {
     try {
       setError(null);
       setLoading(true);
 
-      const [productsRes, categoriesRes] = await Promise.all([
+      const [productsRes, categoriesRes, tablesRes] = await Promise.all([
         axios.get('/api/products'),
-        axios.get('/api/categories')
+        axios.get('/api/categories'),
+        axios.get('/api/tables')
       ]);
 
       setProducts(productsRes.data.data);
       setCategories(categoriesRes.data.data);
+      
+      // Filter tables to show available, reserved, or current table
+      const availableTables = tablesRes.data.data.filter(table => 
+        table.status === 'AVAILABLE' || table.status === 'RESERVED' || table.id === order.tableId
+      );
+      setTables(availableTables);
+      setSelectedTable(order.table);
       
       // Initialize order items from existing order with null checks
       if (order && order.orderItems && Array.isArray(order.orderItems)) {
@@ -72,17 +152,16 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
 
         // Calculate discount percentage from existing order
         const existingSubtotal = order.orderItems.reduce((sum, item) => sum + parseFloat(item.subtotal), 0);
-        const existingDiscountPercent = existingSubtotal > 0 ? (order.discount / existingSubtotal) * 100 : 0;
+        const existingDiscountPercent = existingSubtotal > 0 ? 
+          Math.round((parseFloat(order.discount) / existingSubtotal) * 100 * 100) / 100 : 0;
 
         // Set form values
-        setValue('customerNote', order.customerNote || '');
         setValue('discount', existingDiscountPercent);
         setDiscountPercent(existingDiscountPercent);
       } else {
         // Handle case where orderItems is not available
         console.warn('Order items not available, initializing empty order');
         setOrderItems([]);
-        setValue('customerNote', order?.customerNote || '');
         setValue('discount', 0);
         setDiscountPercent(0);
       }
@@ -93,93 +172,113 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [order, setValue]);
 
-  const filteredProducts = selectedCategory === 'all' 
-    ? products.filter(product => 
-        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        product.description?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    : products.filter(product => 
-        product.category.name === selectedCategory &&
-        (product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-         product.description?.toLowerCase().includes(searchTerm.toLowerCase()))
-      );
 
-  const addToOrder = (product) => {
-    const existingItem = orderItems.find(item => item.productId === product.id);
-    if (existingItem) {
-      updateQuantity(product.id, existingItem.quantity + 1);
-    } else {
-      setOrderItems([...orderItems, {
-        productId: product.id,
-        product: product,
-        quantity: 1,
-        price: parseFloat(product.price),
-        subtotal: parseFloat(product.price)
-      }]);
-    }
-  };
+  // Optimized item management
+  const addToOrder = useCallback((product) => {
+    setOrderItems(prev => {
+      const existingItem = prev.find(item => item.productId === product.id);
+      if (existingItem) {
+        return prev.map(item => 
+          item.productId === product.id 
+            ? { ...item, quantity: item.quantity + 1, subtotal: item.price * (item.quantity + 1) }
+            : item
+        );
+      } else {
+        return [...prev, {
+          productId: product.id,
+          product: product,
+          quantity: 1,
+          price: parseFloat(product.price),
+          subtotal: parseFloat(product.price)
+        }];
+      }
+    });
+  }, []);
 
-  const updateQuantity = (productId, newQuantity) => {
+  const updateQuantity = useCallback((productId, newQuantity) => {
     if (newQuantity <= 0) {
-      removeItem(productId);
+      setOrderItems(prev => prev.filter(item => item.productId !== productId));
       return;
     }
-    setOrderItems(orderItems.map(item => 
+    setOrderItems(prev => prev.map(item => 
       item.productId === productId 
-        ? { ...item, quantity: newQuantity, subtotal: parseFloat(item.price) * newQuantity }
+        ? { ...item, quantity: newQuantity, subtotal: item.price * newQuantity }
         : item
     ));
-  };
+  }, []);
 
-  const removeItem = (productId) => {
-    setOrderItems(orderItems.filter(item => item.productId !== productId));
-  };
+  const removeItem = useCallback((productId) => {
+    setOrderItems(prev => prev.filter(item => item.productId !== productId));
+  }, []);
 
-  const calculateSubtotal = () => {
-    return orderItems.reduce((sum, item) => sum + item.subtotal, 0);
-  };
 
-  const calculateTaxAmount = () => {
-    return calculateTax(calculateSubtotal());
-  };
-
-  const calculateDiscount = () => {
-    return (calculateSubtotal() * discountPercent) / 100;
-  };
-
-  const calculateTotal = () => {
-    return calculateSubtotal() + calculateTaxAmount() - calculateDiscount();
-  };
-
-  const onSubmit = async (data) => {
+  // Optimized form submission
+  const onSubmit = useCallback(async (data) => {
     if (orderItems.length === 0) {
       toast.error('Please add at least one item to the order');
+      return;
+    }
+
+    // Validate order items
+    const hasInvalidItems = orderItems.some(item => 
+      !item.productId || !item.quantity || item.quantity <= 0
+    );
+    
+    if (hasInvalidItems) {
+      toast.error('Please ensure all items have valid quantities');
       return;
     }
 
     setSubmitting(true);
     try {
       const orderData = {
-        customerNote: data.customerNote,
-        discount: calculateDiscount(),
+        discount: calculations.discount,
         items: orderItems.map(item => ({
           productId: item.productId,
           quantity: item.quantity
         }))
       };
 
-      await axios.put(`/api/orders/${order.id}`, orderData);
-      toast.success('Order updated successfully!');
-      onOrderUpdated();
+      const response = await axios.put(`/api/orders/${order.id}`, orderData);
+      
+      if (response.data.success) {
+        // toast.success('Order updated successfully!');
+        onOrderUpdated();
+      } else {
+        throw new Error(response.data.message || 'Failed to update order');
+      }
     } catch (error) {
       console.error('Failed to update order:', error);
-      toast.error(error.response?.data?.message || 'Failed to update order');
+      const errorMessage = error.response?.data?.message || 
+                          error.response?.data?.errors?.map(e => e.msg).join(', ') ||
+                          'Failed to update order';
+      toast.error(errorMessage);
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [orderItems, calculations.discount, order.id, onOrderUpdated]);
+
+  // Safety check for order prop - after all hooks
+  if (!order) {
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="bg-background rounded-2xl shadow-large p-8 max-w-md w-full mx-4">
+          <div className="text-center py-8">
+            <div className="w-16 h-16 bg-error/10 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Icon name="alert" className="w-8 h-8 text-error" />
+            </div>
+            <div className="text-error text-lg font-medium mb-6">No order data available</div>
+            <button onClick={onClose} className="btn-primary">
+              <Icon name="close" className="w-5 h-5 mr-2" />
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -223,8 +322,8 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center">
-      <div className="relative mx-auto px-4 py-6 w-full max-w-7xl shadow-large rounded-2xl bg-background max-h-[90vh] overflow-hidden">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-start justify-center py-2 sm:py-4">
+      <div className="relative mx-auto px-2 sm:px-4 py-4 sm:py-6 w-full max-w-7xl shadow-large rounded-2xl bg-background min-h-[95vh] max-h-[98vh] sm:min-h-[90vh] sm:max-h-[95vh] overflow-y-auto">
         {/* Close button in top right corner */}
         <button
           onClick={onClose}
@@ -247,10 +346,10 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
           <p className="text-text-secondary">#{order.orderNumber} - Table {order.table?.number}</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col lg:flex-row gap-6 h-full">
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col lg:flex-row gap-4 sm:gap-6 min-h-0">
           {/* Products Selection */}
           <div className="flex-1 flex flex-col">
-            <div className="bg-surface rounded-xl shadow-soft border border-neutral-100 overflow-hidden flex flex-col h-full">
+            <div className="bg-surface rounded-xl shadow-soft border border-neutral-100 overflow-hidden flex flex-col max-h-[70vh]">
               <div className="px-6 py-4 border-b border-neutral-200 bg-gradient-to-r from-primary-50 to-primary-100">
                 <h3 className="text-xl font-semibold text-text-primary flex items-center gap-2">
                   <Icon name="food" className="w-6 h-6 text-primary-600" />
@@ -307,8 +406,8 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
               </div>
 
               {/* Products Grid */}
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-6 min-h-0">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 pb-4">
                   {filteredProducts.length === 0 ? (
                     <div className="col-span-full text-center text-text-muted py-12">
                       <Icon name="search" className="w-16 h-16 mx-auto mb-4 text-neutral-300" />
@@ -363,7 +462,7 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
           
           {/* Order Summary Section */}
           <div className="lg:w-96 w-full flex flex-col gap-6">
-            <div className="bg-surface rounded-xl shadow-soft border border-neutral-100 p-6 lg:sticky lg:top-8 h-fit self-start w-full max-h-[80vh] overflow-y-auto flex flex-col">
+            <div className="bg-surface rounded-xl shadow-soft border border-neutral-100 p-6 lg:sticky lg:top-8 h-fit self-start w-full max-h-[70vh] overflow-y-auto flex flex-col">
               <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2">
                 <Icon name="cart" className="w-5 h-5 text-primary-600" />
                 Order Summary
@@ -374,44 +473,55 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
                 <div className="flex items-center gap-2">
                   <Icon name="table" className="w-5 h-5 text-primary-600" />
                   <span className="font-semibold text-primary-700">
-                    Table {order.table?.number}
+                    Table {selectedTable?.number || order.table?.number}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowTableSelector(!showTableSelector)}
+                    className="text-xs px-2 py-1 bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors"
+                    disabled={submitting}
+                  >
+                    Change
+                  </button>
                 </div>
                 <span className="text-sm text-primary-600 font-medium">
                   #{order.orderNumber}
                 </span>
               </div>
 
-              {/* Customer Note */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-text-primary mb-2 flex items-center gap-2">
-                  <Icon name="note" className="w-4 h-4 text-primary-600" />
-                  Customer Note
-                </label>
-                <textarea
-                  {...register('customerNote')}
-                  rows="3"
-                  className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-primary-500/20 focus:border-primary-600 transition-all duration-200 resize-none bg-background"
-                  placeholder="Special instructions, allergies, etc."
-                />
-              </div>
+              {/* Table Selector */}
+              {showTableSelector && (
+                <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Select New Table:</h4>
+                  <div className="grid grid-cols-3 gap-2">
+                    {tables.map(table => (
+                      <button
+                        key={table.id}
+                        type="button"
+                        onClick={() => handleTableChange(table)}
+                        disabled={submitting || table.id === order.tableId}
+                        className={`p-2 text-xs rounded border transition-colors ${
+                          table.id === order.tableId
+                            ? 'bg-blue-100 border-blue-300 text-blue-700 cursor-not-allowed'
+                            : 'bg-white border-gray-300 hover:border-primary-400 hover:bg-primary-50'
+                        }`}
+                      >
+                        Table {table.number}
+                        {table.id === order.tableId && ' (Current)'}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTableSelector(false)}
+                    className="mt-2 text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
 
-              {/* Discount */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-text-primary mb-2 flex items-center gap-2">
-                  <Icon name="discount" className="w-4 h-4 text-primary-600" />
-                  Discount (%)
-                </label>
-                <input
-                  {...register('discount')}
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-primary-500/20 focus:border-primary-600 transition-all duration-200 bg-background"
-                  placeholder="0"
-                />
-              </div>
+
               
               {/* Order Items */}
               {orderItems.length === 0 ? (
@@ -420,7 +530,7 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
                   <p>No items added yet</p>
                 </div>
               ) : (
-                <div className="space-y-3 mb-4">
+                <div className="space-y-3 mb-4 max-h-60 overflow-y-auto custom-scrollbar">
                   {orderItems.map(item => (
                     <div key={item.productId} className="flex justify-between items-center p-3 bg-background rounded-lg shadow-soft border border-neutral-100">
                       <div className="flex-1">
@@ -460,24 +570,49 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
               )}
 
               {/* Totals */}
-              <div className="border-t border-neutral-200 pt-4 space-y-3">
+              <div className="border-t border-neutral-200 pt-4 space-y-3 mt-auto">
                 <div className="flex justify-between text-sm">
                   <span className="text-text-secondary">Subtotal:</span>
-                  <span className="font-medium text-text-primary">${calculateSubtotal().toFixed(2)}</span>
+                  <span className="font-medium text-text-primary">{formatCurrency(calculations.subtotal)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-text-secondary">Tax:</span>
-                  <span className="font-medium text-text-primary">${calculateTaxAmount().toFixed(2)}</span>
+                  <span className="font-medium text-text-primary">{formatCurrency(calculations.tax)}</span>
                 </div>
-                {discountPercent > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-text-secondary">Discount ({discountPercent}%):</span>
-                    <span className="font-medium text-error">-${calculateDiscount().toFixed(2)}</span>
-                  </div>
-                )}
+                <div className="flex justify-between text-sm">
+                  {editingDiscount ? (
+                    <input
+                      type="number"
+                      {...register('discount')}
+                      min="0"
+                      max="100"
+                      autoFocus
+                      onBlur={() => setEditingDiscount(false)}
+                      onKeyDown={e => { if (e.key === 'Enter') setEditingDiscount(false); }}
+                      className="w-16 px-2 py-1 border border-neutral-200 rounded text-center focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-600 transition-all duration-200"
+                      placeholder="0"
+                      disabled={submitting}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value) || 0;
+                        setDiscountPercent(Math.round(value * 100) / 100);
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      ref={discountButtonRef}
+                      className="text-text-secondary hover:text-primary-600 hover:underline transition-colors duration-200"
+                      onClick={() => setEditingDiscount(true)}
+                      aria-label="Edit discount"
+                    >
+                      Discount ({discountPercent || 0}%)
+                    </button>
+                  )}
+                  <span className="font-medium text-error">-{formatCurrency(calculations.discount)}</span>
+                </div>
                 <div className="flex justify-between text-lg font-bold border-t border-neutral-200 pt-3">
                   <span className="text-text-primary">Total:</span>
-                  <span className="text-primary-600">${calculateTotal().toFixed(2)}</span>
+                  <span className="text-primary-600">{formatCurrency(calculations.total)}</span>
                 </div>
               </div>
 
@@ -485,7 +620,7 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
               <button
                 type="submit"
                 disabled={submitting || orderItems.length === 0}
-                className="w-full py-4 rounded-xl bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-bold text-lg shadow-soft hover:shadow-medium transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none mt-6"
+                className="w-full py-4 rounded-xl bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-bold text-lg shadow-soft hover:shadow-medium transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none mt-6 sticky bottom-0 z-10"
               >
                 {submitting ? (
                   <div className="flex items-center justify-center gap-2">

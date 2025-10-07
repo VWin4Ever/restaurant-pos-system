@@ -7,7 +7,7 @@ import websocketService from '../../services/websocket';
 import { useAuth } from '../../contexts/AuthContext';
 
 const Tables = () => {
-  const { isAdmin, hasPermission } = useAuth();
+  const { hasPermission } = useAuth();
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTable, setSelectedTable] = useState(null);
@@ -19,7 +19,6 @@ const Tables = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [newTable, setNewTable] = useState({ number: '', capacity: 4 });
   const [editingTable, setEditingTable] = useState({});
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedTableIds, setSelectedTableIds] = useState([]);
   const [groupFilter, setGroupFilter] = useState('ALL');
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -33,7 +32,7 @@ const Tables = () => {
 
   const fetchTables = useCallback(async (showLoading = false) => {
     if (showLoading) {
-      setIsRefreshing(true);
+      setLoading(true);
     }
     
     try {
@@ -44,7 +43,6 @@ const Tables = () => {
       toast.error('Failed to load tables');
     } finally {
       setLoading(false);
-      setIsRefreshing(false);
     }
   }, []);
 
@@ -64,48 +62,37 @@ const Tables = () => {
 
   // WebSocket setup
   useEffect(() => {
-    // Subscribe to table updates
+    // Subscribe to table updates (silent)
     const unsubscribeMessage = websocketService.subscribe('message', (data) => {
       if (data.type === 'table_update') {
-        // Update specific table
+        // Update specific table silently
         setTables(prevTables => 
           prevTables.map(table => 
             table.id === data.table.id ? data.table : table
           )
         );
-        toast.info(`Table ${data.table.number} status updated to ${data.table.status}`);
+        // No toast notifications - silent updates only
       } else if (data.type === 'tables_refresh') {
-        // Refresh all tables
+        // Refresh all tables silently
         fetchTables();
       }
     });
 
-    // Subscribe to connection status
-    const unsubscribeConnection = websocketService.subscribe('connection', (data) => {
-      if (data.status === 'disconnected') {
-        toast.warning('Real-time updates disconnected');
-      }
-    });
+    // No connection status notifications - completely silent
 
     // Cleanup on unmount
     return () => {
       unsubscribeMessage();
-      unsubscribeConnection();
     };
   }, [fetchTables]);
 
-  // Manual refresh function
-  const handleManualRefresh = () => {
-    fetchTables(true);
-    toast.info('Refreshing tables...');
-  };
 
   // Format last updated time
 
 
   const updateTableStatus = async (tableId, newStatus) => {
     try {
-      const response = await axios.patch(`/api/tables/${tableId}/status`, { status: newStatus });
+      await axios.patch(`/api/tables/${tableId}/status`, { status: newStatus });
       
       toast.success('Table status updated successfully');
       fetchTables();
@@ -134,27 +121,47 @@ const Tables = () => {
 
   const addTable = async () => {
     try {
-      await axios.post('/api/tables', newTable);
+      // Check if table number already exists
+      const existingTable = tables.find(table => table.number === parseInt(newTable.number));
+      if (existingTable) {
+        toast.error(`Table number ${newTable.number} already exists. Please choose a different number.`);
+        return;
+      }
+      
+      const response = await axios.post('/api/tables', newTable);
+      
       toast.success('Table added successfully');
       fetchTables();
       setShowAddModal(false);
       setNewTable({ number: '', capacity: 4 });
     } catch (error) {
-      console.error('Failed to add table:', error);
-      toast.error('Failed to add table');
+      // Show specific error message from server
+      const errorMessage = error.response?.data?.message || 'Failed to add table';
+      toast.error(errorMessage);
     }
   };
 
   const updateTable = async () => {
     try {
+      // Check if table number already exists (excluding current table)
+      const existingTable = tables.find(table => 
+        table.number === parseInt(editingTable.number) && table.id !== editingTable.id
+      );
+      
+      if (existingTable) {
+        toast.error(`Table number ${editingTable.number} already exists. Please choose a different number.`);
+        return;
+      }
+
       await axios.put(`/api/tables/${editingTable.id}`, editingTable);
       toast.success('Table updated successfully');
       fetchTables();
       setShowEditModal(false);
       setEditingTable({});
     } catch (error) {
-      console.error('Failed to update table:', error);
-      toast.error('Failed to update table');
+      // Show specific error message from server
+      const errorMessage = error.response?.data?.message || 'Failed to update table';
+      toast.error(errorMessage);
     }
   };
 
@@ -166,12 +173,12 @@ const Tables = () => {
       setShowDeleteDialog(false);
       setSelectedTable(null);
     } catch (error) {
-      console.error('Failed to delete table:', error);
-      toast.error('Failed to delete table');
+      const errorMessage = error.response?.data?.message || 'Failed to delete table';
+      toast.error(errorMessage);
     }
   };
 
-  const getStatusBadge = (status, maintenance = false) => {
+  const getStatusBadge = (status, maintenance = false, table = null) => {
     if (maintenance) {
       return (
         <span className="table-status bg-gray-200 text-red-700 flex items-center gap-1">
@@ -190,10 +197,48 @@ const Tables = () => {
       RESERVED: '🔵'
     };
     return (
-      <span className={`table-status ${statusClasses[status]} flex items-center gap-1`}>
+      <button
+        className={`table-status ${statusClasses[status]} flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity`}
+        onClick={async (e) => {
+          e.stopPropagation();
+          
+          if (table?.maintenance) {
+            toast.warning('Cannot change status of a table that is out of service (maintenance mode). Please remove maintenance mode first.');
+            return;
+          }
+          
+          // Check if table has active orders before allowing status change
+          if (table) {
+            try {
+              const response = await axios.get(`/api/orders?tableId=${table.id}&status=PENDING`);
+              const activeOrders = response.data.data || [];
+              
+              if (activeOrders.length > 0) {
+                toast.warning(`Cannot change status of table ${table.number}. There are ${activeOrders.length} active order(s) for this table. Please complete or cancel the orders first.`);
+                return;
+              }
+            } catch (error) {
+              console.error('Failed to check active orders:', error);
+              toast.error('Failed to verify table status. Please try again.');
+              return;
+            }
+          }
+          
+          if (table) {
+            setSelectedTable(table);
+            setShowStatusModal(true);
+          }
+        }}
+        title="Click to change status"
+      >
         <span>{statusIcons[status]}</span> {status}
-      </span>
+      </button>
     );
+  };
+
+  const hasTableHistory = (table) => {
+    // Check if table has any orders in its history
+    return table.orderCount && table.orderCount > 0;
   };
 
   const getStatusIcon = (status) => {
@@ -210,14 +255,77 @@ const Tables = () => {
 
   // Filtered tables by group
   const filteredTables = tables.filter(table => {
-    const matchesStatus = filterStatus === 'ALL' || table.status === filterStatus;
+    let matchesStatus = false;
+    if (filterStatus === '' || filterStatus === 'ALL') {
+      matchesStatus = true;
+    } else if (filterStatus === 'MAINTENANCE') {
+      // Show only tables that are in maintenance mode (regardless of their status)
+      matchesStatus = table.maintenance === true;
+    } else {
+      // For regular status filters, exclude maintenance tables
+      matchesStatus = table.status === filterStatus && table.maintenance !== true;
+    }
+    
     const matchesSearch = table.number.toString().includes(searchTerm);
     const matchesGroup = groupFilter === 'ALL' || (table.group || 'General') === groupFilter;
     return matchesStatus && matchesSearch && matchesGroup;
   });
 
   const getStatusCount = (status) => {
-    return tables.filter(t => t.status === status).length;
+    return tables.filter(t => t.status === status && t.maintenance !== true).length;
+  };
+
+  // Get filtered status counts based on current filters (group, search)
+  const getFilteredStatusCount = (status) => {
+    // If a status filter is active, only show count for that status
+    if (filterStatus && filterStatus !== 'ALL' && filterStatus !== 'MAINTENANCE') {
+      return status === filterStatus ? 
+        tables.filter(table => {
+          const matchesStatus = table.status === status && table.maintenance !== true;
+          const matchesSearch = table.number.toString().includes(searchTerm);
+          const matchesGroup = groupFilter === 'ALL' || (table.group || 'General') === groupFilter;
+          return matchesStatus && matchesSearch && matchesGroup;
+        }).length : 0;
+    }
+    
+    // If maintenance filter is active, show 0 for all regular statuses
+    if (filterStatus === 'MAINTENANCE') {
+      return 0;
+    }
+    
+    // No status filter active, show normal counts
+    return tables.filter(table => {
+      const matchesStatus = table.status === status && table.maintenance !== true;
+      const matchesSearch = table.number.toString().includes(searchTerm);
+      const matchesGroup = groupFilter === 'ALL' || (table.group || 'General') === groupFilter;
+      return matchesStatus && matchesSearch && matchesGroup;
+    }).length;
+  };
+
+  // Get filtered maintenance count based on current filters (group, search)
+  const getFilteredMaintenanceCount = () => {
+    // If maintenance filter is active, show maintenance count
+    if (filterStatus === 'MAINTENANCE') {
+      return tables.filter(table => {
+        const matchesMaintenance = table.maintenance === true;
+        const matchesSearch = table.number.toString().includes(searchTerm);
+        const matchesGroup = groupFilter === 'ALL' || (table.group || 'General') === groupFilter;
+        return matchesMaintenance && matchesSearch && matchesGroup;
+      }).length;
+    }
+    
+    // If any other status filter is active, show 0 for maintenance
+    if (filterStatus && filterStatus !== 'ALL') {
+      return 0;
+    }
+    
+    // No status filter active, show normal maintenance count
+    return tables.filter(table => {
+      const matchesMaintenance = table.maintenance === true;
+      const matchesSearch = table.number.toString().includes(searchTerm);
+      const matchesGroup = groupFilter === 'ALL' || (table.group || 'General') === groupFilter;
+      return matchesMaintenance && matchesSearch && matchesGroup;
+    }).length;
   };
 
   // Bulk selection handlers
@@ -235,6 +343,33 @@ const Tables = () => {
   };
   const bulkChangeStatus = async (status) => {
     try {
+      // Check for active orders on all selected tables first
+      const activeOrdersChecks = await Promise.all(
+        selectedTableIds.map(async (id) => {
+          try {
+            const response = await axios.get(`/api/orders?tableId=${id}&status=PENDING`);
+            return { tableId: id, activeOrders: response.data.data || [] };
+          } catch (error) {
+            console.error(`Failed to check active orders for table ${id}:`, error);
+            return { tableId: id, activeOrders: [] };
+          }
+        })
+      );
+
+      // Find tables with active orders
+      const tablesWithActiveOrders = activeOrdersChecks.filter(check => check.activeOrders.length > 0);
+      
+      if (tablesWithActiveOrders.length > 0) {
+        const tableNumbers = tablesWithActiveOrders.map(t => {
+          const table = tables.find(tbl => tbl.id === t.tableId);
+          return table ? table.number : `ID ${t.tableId}`;
+        }).join(', ');
+        
+        toast.warning(`Cannot change status for tables: ${tableNumbers}. These tables have active orders. Please complete or cancel the orders first.`);
+        return;
+      }
+
+      // Proceed with status change if no active orders
       await Promise.all(
         selectedTableIds.map((id) =>
           axios.patch(`/api/tables/${id}/status`, { status })
@@ -244,8 +379,32 @@ const Tables = () => {
       fetchTables();
       clearSelection();
     } catch (error) {
+      console.error('Failed to change status:', error);
       toast.error('Failed to change status for some tables');
     }
+  };
+
+
+  const handleMaintenanceToggle = async (checked) => {
+    if (checked) {
+      // Check for active orders before allowing maintenance mode
+      try {
+        const response = await axios.get(`/api/orders?tableId=${editingTable.id}&status=PENDING`);
+        const activeOrders = response.data.data || [];
+        
+        if (activeOrders.length > 0) {
+          toast.warning(`Cannot put table ${editingTable.number} in maintenance mode. There are ${activeOrders.length} active order(s) for this table. Please complete or cancel the orders first.`);
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to check active orders:', error);
+        toast.error('Failed to verify table status. Please try again.');
+        return;
+      }
+    }
+    
+    // Update the editing table state
+    setEditingTable({ ...editingTable, maintenance: checked });
   };
 
   const openHistoryModal = async (table) => {
@@ -277,58 +436,86 @@ const Tables = () => {
             {/* Header */}
       <div className="card-gradient p-4 sm:p-6 animate-slide-down sticky top-0 z-30 bg-white shadow">
         {/* Status Cards Row */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 sm:gap-6 mb-6 sm:mb-8">
+          <div className="p-6 rounded-xl shadow-lg text-white" style={{background: 'linear-gradient(to right, #53B312, #4A9F0F)'}}>
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90">Total Tables</p>
-                <p className="text-3xl font-bold">{tables.length}</p>
+                <p className="text-3xl font-bold">
+                  {filterStatus && filterStatus !== 'ALL' ? 
+                    (filterStatus === 'MAINTENANCE' ? getFilteredMaintenanceCount() : getFilteredStatusCount(filterStatus)) :
+                    ((groupFilter === 'ALL' && !searchTerm) ? tables.length : filteredTables.length)
+                  }
+                </p>
               </div>
               <div className="text-4xl">🪑</div>
             </div>
           </div>
-          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
+          <button 
+            onClick={() => setFilterStatus(filterStatus === 'AVAILABLE' ? '' : 'AVAILABLE')}
+            className={`bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white hover:from-green-600 hover:to-green-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-green-300 focus:outline-none ${
+              filterStatus === 'AVAILABLE' ? 'ring-4 ring-green-300 scale-105' : ''
+            }`}
+            title={filterStatus === 'AVAILABLE' ? 'Click to show all tables' : 'Click to filter and show only Available tables'}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90">Available</p>
-                <p className="text-3xl font-bold">{getStatusCount('AVAILABLE')}</p>
+                <p className="text-3xl font-bold">{getFilteredStatusCount('AVAILABLE')}</p>
               </div>
               <div className="text-4xl">🟢</div>
             </div>
-          </div>
-          <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white">
+          </button>
+          <button 
+            onClick={() => setFilterStatus(filterStatus === 'OCCUPIED' ? '' : 'OCCUPIED')}
+            className={`bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white hover:from-orange-600 hover:to-orange-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-orange-300 focus:outline-none ${
+              filterStatus === 'OCCUPIED' ? 'ring-4 ring-orange-300 scale-105' : ''
+            }`}
+            title={filterStatus === 'OCCUPIED' ? 'Click to show all tables' : 'Click to filter and show only Occupied tables'}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90">Occupied</p>
-                <p className="text-3xl font-bold">{getStatusCount('OCCUPIED')}</p>
+                <p className="text-3xl font-bold">{getFilteredStatusCount('OCCUPIED')}</p>
               </div>
               <div className="text-4xl">🟡</div>
             </div>
-          </div>
-          <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
+          </button>
+          <button 
+            onClick={() => setFilterStatus(filterStatus === 'RESERVED' ? '' : 'RESERVED')}
+            className={`bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white hover:from-blue-600 hover:to-blue-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-blue-300 focus:outline-none ${
+              filterStatus === 'RESERVED' ? 'ring-4 ring-blue-300 scale-105' : ''
+            }`}
+            title={filterStatus === 'RESERVED' ? 'Click to show all tables' : 'Click to filter and show only Reserved tables'}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90">Reserved</p>
-                <p className="text-3xl font-bold">{getStatusCount('RESERVED')}</p>
+                <p className="text-3xl font-bold">{getFilteredStatusCount('RESERVED')}</p>
               </div>
               <div className="text-4xl">🔵</div>
             </div>
-          </div>
+          </button>
+          <button 
+            onClick={() => setFilterStatus(filterStatus === 'MAINTENANCE' ? '' : 'MAINTENANCE')}
+            className={`bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-xl shadow-lg text-white hover:from-red-600 hover:to-red-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-red-300 focus:outline-none ${
+              filterStatus === 'MAINTENANCE' ? 'ring-4 ring-red-300 scale-105' : ''
+            }`}
+            title={filterStatus === 'MAINTENANCE' ? 'Click to show all tables' : 'Click to filter and show only Out of Service tables'}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-90">Out of Service</p>
+                <p className="text-3xl font-bold">{getFilteredMaintenanceCount()}</p>
+              </div>
+              <div className="text-4xl">⚠️</div>
+            </div>
+          </button>
         </div>
         
         {/* Action Buttons Row */}
         <div className="flex flex-col sm:flex-row justify-end items-start sm:items-center gap-4">
           <div className="flex gap-2">
-            <button
-              onClick={handleManualRefresh}
-              disabled={isRefreshing}
-              className="btn-secondary flex items-center px-4 py-2 rounded-lg text-sm font-semibold shadow-sm"
-            >
-              <span className={isRefreshing ? 'animate-spin mr-2' : 'mr-2'}>
-                {isRefreshing ? '🔄' : '🔄'}
-              </span>
-              {isRefreshing ? 'Refreshing...' : 'Refresh'}
-            </button>
             <button
               onClick={() => setShowFilters(!showFilters)}
               className="btn-secondary flex items-center px-4 py-2 rounded-lg text-sm font-semibold shadow-sm border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
@@ -354,44 +541,45 @@ const Tables = () => {
       {/* Filters */}
       {showFilters && (
         <div className="card-gradient p-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Search Tables</label>
-              <input
-                type="text"
-                placeholder="Search by table number..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="input"
-              />
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex-1">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Search Tables</label>
+                <input
+                  type="text"
+                  placeholder="Search by table number..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="input"
+                />
+              </div>
+              <div className="sm:w-48">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Status</label>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="input"
+                >
+                  <option value="ALL">All Status</option>
+                  <option value="AVAILABLE">Available</option>
+                  <option value="OCCUPIED">Occupied</option>
+                  <option value="RESERVED">Reserved</option>
+                  <option value="MAINTENANCE">Out of Service</option>
+                </select>
+              </div>
+              <div className="sm:w-48">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Group/Area</label>
+                <select
+                  value={groupFilter}
+                  onChange={(e) => setGroupFilter(e.target.value)}
+                  className="input"
+                >
+                  <option value="ALL">All Groups</option>
+                  {allGroups.map(group => (
+                    <option key={group} value={group}>{group}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div className="sm:w-48">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Status</label>
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="input"
-              >
-                <option value="ALL">All Status</option>
-                <option value="AVAILABLE">Available</option>
-                <option value="OCCUPIED">Occupied</option>
-                <option value="RESERVED">Reserved</option>
-              </select>
-            </div>
-            <div className="sm:w-48">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Group/Area</label>
-              <select
-                value={groupFilter}
-                onChange={(e) => setGroupFilter(e.target.value)}
-                className="input"
-              >
-                <option value="ALL">All Groups</option>
-                {allGroups.map(group => (
-                  <option key={group} value={group}>{group}</option>
-                ))}
-              </select>
-            </div>
-          </div>
         </div>
       )}
 
@@ -406,8 +594,8 @@ const Tables = () => {
           <div className="flex flex-wrap gap-2 items-center">
             <span className="text-gray-700">Change status to:</span>
             <button onClick={() => bulkChangeStatus('AVAILABLE')} className="btn btn-success btn-xs">Available</button>
-            <button onClick={() => bulkChangeStatus('OCCUPIED')} className="btn btn-warning btn-xs">Occupied</button>
-            <button onClick={() => bulkChangeStatus('RESERVED')} className="btn btn-primary btn-xs">Reserved</button>
+            <button onClick={() => bulkChangeStatus('OCCUPIED')} className="btn btn-xs" style={{backgroundColor: '#f97316', color: 'white'}}>Occupied</button>
+            <button onClick={() => bulkChangeStatus('RESERVED')} className="btn btn-xs" style={{backgroundColor: '#3b82f6', color: 'white'}}>Reserved</button>
           </div>
         </div>
       )}
@@ -422,16 +610,20 @@ const Tables = () => {
                 table.status === 'AVAILABLE' 
                   ? 'hover:bg-green-50 border-green-200' 
                   : table.status === 'OCCUPIED'
-                  ? 'bg-yellow-50 border-yellow-200'
+                  ? 'bg-orange-50 border-orange-200'
                   : 'bg-blue-50 border-blue-200'
-              }`}
-              onClick={() => {
-                setSelectedTable(table);
-                setShowStatusModal(true);
+              } ${isTableSelected(table.id) ? 'ring-2 ring-primary-500 bg-primary-50' : ''}`}
+              onClick={(e) => {
+                // Only enter selection mode if clicking on the card body (not buttons or status badge)
+                if (e.target === e.currentTarget || e.target.closest('.card-body')) {
+                  if (hasPermission('tables.edit')) {
+                    toggleTableSelection(table.id);
+                  }
+                }
               }}
             >
               <div className="flex items-center justify-between mb-2">
-                {hasPermission('tables.edit') && (
+                {hasPermission('tables.edit') && isTableSelected(table.id) && (
                   <input
                     type="checkbox"
                     checked={isTableSelected(table.id)}
@@ -440,20 +632,34 @@ const Tables = () => {
                       toggleTableSelection(table.id);
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    className="mr-2"
+                    className="w-5 h-5 text-primary-600 bg-gray-100 border-gray-300 rounded focus:ring-primary-500 focus:ring-2 cursor-pointer mr-2"
+                    title="Select for bulk actions"
                   />
                 )}
-                <div className="text-3xl">{getStatusIcon(table.status)}</div>
+                <div className="text-3xl ml-auto">{getStatusIcon(table.status)}</div>
               </div>
-              <div className="text-2xl font-bold text-gray-900 mb-2">
-                Table {table.number}
-              </div>
-              <div className="mb-2">
-                {getStatusBadge(table.status, table.maintenance)}
-              </div>
-              <div className={`text-xs text-gray-500 mb-3 flex flex-col gap-1`}>
-                <span>Capacity: {table.capacity} people <span className="ml-2 px-2 py-1 bg-gray-100 rounded text-xs font-medium text-gray-700">{table.group || 'General'}</span></span>
-                {table.notes && <span className="italic text-gray-400">📝 {table.notes}</span>}
+              <div className="card-body">
+                <div className="text-2xl font-bold text-gray-900 mb-1">
+                  Table {table.number}
+                </div>
+                <div className="text-xs text-gray-500 mb-2 font-mono">
+                  ID: TID{String(table.id).padStart(2, '0')}
+                </div>
+                <div className="mb-2 flex justify-center">
+                  {getStatusBadge(table.status, table.maintenance, table)}
+                </div>
+                <div className={`text-xs text-gray-500 mb-3 flex flex-col gap-1`}>
+                  <span>Capacity: {table.capacity} people <span className="ml-2 px-2 py-1 bg-gray-100 rounded text-xs font-medium text-gray-700">{table.group || 'General'}</span></span>
+                  {table.notes && <span className="italic text-gray-400">📝 {table.notes}</span>}
+                  {hasTableHistory(table) && (
+                    <span className="text-xs text-blue-600 font-medium">📊 {table.orderCount} order(s) in history</span>
+                  )}
+                </div>
+                {selectedTableIds.length > 0 && !isTableSelected(table.id) && (
+                  <div className="text-xs text-gray-400 italic mb-2">
+                    Click to add to selection
+                  </div>
+                )}
               </div>
               <div className="flex justify-center gap-1">
                 {hasPermission('tables.edit') && (
@@ -468,17 +674,30 @@ const Tables = () => {
                     Edit
                   </button>
                 )}
-                {hasPermission('tables.delete') && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedTable(table);
-                      setShowDeleteDialog(true);
-                    }}
-                    className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded focus:ring-2 focus:ring-primary-400"
-                  >
-                    Delete
-                  </button>
+                  {hasPermission('tables.delete') && (
+                    hasTableHistory(table) ? (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toast.warning('Cannot delete table with order history. This table has been used for orders and deleting would affect reporting and audit trails.');
+                      }}
+                      className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded cursor-not-allowed"
+                      title="Cannot delete table with order history"
+                    >
+                      Delete
+                    </button>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedTable(table);
+                        setShowDeleteDialog(true);
+                      }}
+                      className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded focus:ring-2 focus:ring-primary-400"
+                    >
+                      Delete
+                    </button>
+                  )
                 )}
                 {hasPermission('tables.view') && (
                   <button
@@ -519,7 +738,7 @@ const Tables = () => {
                 <span className="text-sm font-medium text-gray-700">Current Status:</span>
                 <span className={`px-2 py-1 rounded text-xs font-semibold ${
                   selectedTable.status === 'AVAILABLE' ? 'bg-green-100 text-green-800' :
-                  selectedTable.status === 'OCCUPIED' ? 'bg-yellow-100 text-yellow-800' :
+                  selectedTable.status === 'OCCUPIED' ? 'bg-orange-100 text-orange-800' :
                   'bg-blue-100 text-blue-800'
                 }`}>
                   {selectedTable.status}
@@ -575,6 +794,13 @@ const Tables = () => {
           <div className="bg-white rounded-lg p-6 w-full max-w-md modal-fade-in" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-medium text-gray-900 mb-4">Add New Table</h3>
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Table ID</label>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600">
+                  {`TID${String(tables.length + 1).padStart(2, '0')}`}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Auto-generated table identifier</p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Table Number</label>
                 <input
@@ -656,11 +882,18 @@ const Tables = () => {
             <h3 className="text-lg font-medium text-gray-900 mb-4">Edit Table {editingTable.number}</h3>
             <div className="space-y-4">
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Table ID</label>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 font-mono">
+                  TID{String(editingTable.id).padStart(2, '0')}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">System-generated identifier (cannot be changed)</p>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Table Number</label>
                 <input
                   type="number"
-                  value={editingTable.number}
-                  onChange={(e) => setEditingTable({ ...editingTable, number: parseInt(e.target.value) })}
+                  value={editingTable.number || ''}
+                  onChange={(e) => setEditingTable({ ...editingTable, number: e.target.value ? parseInt(e.target.value) : '' })}
                   className="input"
                 />
               </div>
@@ -668,8 +901,8 @@ const Tables = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">Capacity</label>
                 <input
                   type="number"
-                  value={editingTable.capacity}
-                  onChange={(e) => setEditingTable({ ...editingTable, capacity: parseInt(e.target.value) })}
+                  value={editingTable.capacity || ''}
+                  onChange={(e) => setEditingTable({ ...editingTable, capacity: e.target.value ? parseInt(e.target.value) : '' })}
                   className="input"
                   min="1"
                   max="20"
@@ -699,7 +932,7 @@ const Tables = () => {
                 <input
                   type="checkbox"
                   checked={!!editingTable.maintenance}
-                  onChange={(e) => setEditingTable({ ...editingTable, maintenance: e.target.checked })}
+                  onChange={(e) => handleMaintenanceToggle(e.target.checked)}
                   id="edit-maintenance"
                 />
                 <label htmlFor="edit-maintenance" className="text-sm font-medium text-gray-700">Out of Service (Maintenance)</label>
@@ -728,16 +961,21 @@ const Tables = () => {
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog
-        isOpen={showDeleteDialog}
+        open={showDeleteDialog}
         onClose={() => {
           setShowDeleteDialog(false);
           setSelectedTable(null);
         }}
         onConfirm={deleteTable}
+        onCancel={() => {
+          setShowDeleteDialog(false);
+          setSelectedTable(null);
+        }}
         title="Delete Table"
         message={`Are you sure you want to delete Table ${selectedTable?.number}? This action cannot be undone.`}
         confirmText="Delete"
-        confirmClass="btn-danger"
+        cancelText="Cancel"
+        type="danger"
       />
 
 
@@ -751,6 +989,7 @@ const Tables = () => {
               <button onClick={closeHistoryModal} className="text-gray-400 hover:text-gray-600 text-2xl">✕</button>
             </div>
             <div className="mb-4">
+              <span className="font-medium">Table ID:</span> <span className="font-mono text-sm bg-gray-100 px-2 py-1 rounded">TID{String(historyTable.id).padStart(2, '0')}</span><br/>
               <span className="font-medium">Group/Area:</span> {historyTable.group || 'General'}<br/>
               <span className="font-medium">Capacity:</span> {historyTable.capacity} people<br/>
               {historyTable.notes && <span className="font-medium">Notes:</span>} <span className="italic text-gray-500">{historyTable.notes}</span><br/>

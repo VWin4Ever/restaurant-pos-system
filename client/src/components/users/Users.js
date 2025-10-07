@@ -1,10 +1,60 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { toast } from 'react-toastify';
 import axios from 'axios';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ConfirmDialog from '../common/ConfirmDialog';
 import Icon from '../common/Icon';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCache } from '../../hooks/useCache';
+
+// Constants for better maintainability
+const DEFAULT_PAGE_SIZE = 20;
+const SEARCH_DEBOUNCE_DELAY = 300;
+const MAX_RETRY_ATTEMPTS = 2;
+const RETRY_DELAY = 1000;
+
+// Permission templates for quick setup
+const PERMISSION_TEMPLATES = {
+  ADMIN: [
+    'orders.*',
+    'products.*',
+    'categories.*',
+    'tables.*',
+    'stock.*',
+    'reports.*',
+    'settings.*',
+    'users.*'
+  ],
+  CASHIER: [
+    'orders.create',
+    'orders.read',
+    'orders.update',
+    'products.read',
+    'categories.read',
+    'tables.read',
+    'tables.update',
+    'stock.read',
+    'stock.update',
+    'reports.read'
+  ]
+};
+
+// Debounce utility function
+const useDebounce = (value, delay) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+};
 
 // Skeleton loader for users table
 const UsersSkeleton = ({ rows = 5 }) => (
@@ -16,8 +66,10 @@ const UsersSkeleton = ({ rows = 5 }) => (
 );
 
 const Users = () => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user: currentUser } = useAuth();
+  const { fetchWithCache, clearCache } = useCache();
   const [users, setUsers] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -36,10 +88,16 @@ const Users = () => {
     search: ''
   });
   
+  // Quick filter state
+  const [quickFilter, setQuickFilter] = useState('');
+  
+  // Debounced search for better performance
+  const debouncedSearch = useDebounce(filters.search, SEARCH_DEBOUNCE_DELAY);
+  
   // Pagination
   const [pagination, setPagination] = useState({
     page: 1,
-    limit: 20,
+    limit: DEFAULT_PAGE_SIZE,
     total: 0,
     pages: 0
   });
@@ -51,7 +109,7 @@ const Users = () => {
     name: '',
     email: '',
     role: 'CASHIER',
-    permissions: []
+    permissions: [],
   });
 
   // Permissions form state
@@ -70,42 +128,115 @@ const Users = () => {
   useEffect(() => {
     fetchUsers();
     fetchAvailablePermissions();
-  }, [filters, pagination.page]);
+  }, [pagination.page]);
 
-  const fetchUsers = async () => {
+  // Synchronize filter dropdowns with quickFilter
+  useEffect(() => {
+    if (filters.status === 'active' || filters.status === 'inactive') {
+      setQuickFilter(filters.status);
+    } else if (filters.role === 'ADMIN' || filters.role === 'CASHIER') {
+      setQuickFilter(filters.role);
+    } else if (filters.status === '' && filters.role === '') {
+      // Only clear quickFilter if both status and role are empty
+      setQuickFilter('');
+    }
+  }, [filters.status, filters.role]);
+
+  // Memoized filtering function for better performance
+  const applyFilters = useCallback((users, searchTerm, role, status, quickFilter) => {
+    return users.filter(user => {
+      // Apply search filter
+      if (searchTerm) {
+        const searchLower = searchTerm.toLowerCase();
+        if (!user.name.toLowerCase().includes(searchLower) && 
+            !user.email.toLowerCase().includes(searchLower)) {
+          return false;
+        }
+      }
+      
+      // Apply role filter (from dropdown or quick filter)
+      const selectedRole = role || (quickFilter === 'ADMIN' ? 'ADMIN' : quickFilter === 'CASHIER' ? 'CASHIER' : null);
+      if (selectedRole && user.role !== selectedRole) {
+        return false;
+      }
+      
+      // Apply status filter (from dropdown or quick filter)
+      const selectedStatus = status || (quickFilter === 'active' ? 'active' : quickFilter === 'inactive' ? 'inactive' : null);
+      if (selectedStatus === 'active' && !user.isActive) return false;
+      if (selectedStatus === 'inactive' && user.isActive) return false;
+      
+      return true;
+    });
+  }, []);
+
+  // Memoized filtered users
+  const filteredUsers = useMemo(() => {
+    return applyFilters(allUsers, debouncedSearch, filters.role, filters.status, quickFilter);
+  }, [allUsers, debouncedSearch, filters.role, filters.status, quickFilter, applyFilters]);
+
+  // Update users when filtered results change
+  useEffect(() => {
+    setUsers(filteredUsers);
+  }, [filteredUsers]);
+
+  const fetchUsers = useCallback(async (retryCount = 0) => {
+    const cacheKey = `users_${pagination.page}_${pagination.limit}`;
+    
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        page: pagination.page,
-        limit: pagination.limit,
-        ...filters
-      });
+      
+      const data = await fetchWithCache(cacheKey, async () => {
+        const params = new URLSearchParams({
+          page: pagination.page,
+          limit: pagination.limit
+        });
 
-      const response = await axios.get(`/api/users?${params}`);
-      setUsers(response.data.data);
+        const response = await axios.get(`/api/users?${params}`);
+        return response.data;
+      }, 2 * 60 * 1000); // 2 minutes cache
+      
+      setAllUsers(data.data);
+      setUsers(data.data);
       
       // Handle both new pagination format and old format for backward compatibility
-      if (response.data.pagination) {
+      if (data.pagination) {
         setPagination(prev => ({
           ...prev,
-          total: response.data.pagination.total,
-          pages: response.data.pagination.pages
+          total: data.pagination.total,
+          pages: data.pagination.pages
         }));
       } else {
         // Fallback for old API format
         setPagination(prev => ({
           ...prev,
-          total: response.data.data.length,
+          total: data.data.length,
           pages: 1
         }));
       }
     } catch (error) {
       console.error('Error fetching users:', error);
-      toast.error('Failed to fetch users');
+      
+      // Retry logic for network errors
+      if (retryCount < MAX_RETRY_ATTEMPTS && (error.code === 'NETWORK_ERROR' || error.response?.status >= 500)) {
+        setTimeout(() => fetchUsers(retryCount + 1), RETRY_DELAY * (retryCount + 1));
+        return;
+      }
+      
+      // More specific error messages
+      const errorMessage = error.response?.status === 403 
+        ? 'You do not have permission to view users'
+        : error.response?.status === 404
+        ? 'Users endpoint not found'
+        : error.response?.status >= 500
+        ? 'Server error. Please try again later.'
+        : 'Failed to fetch users. Please check your connection.';
+        
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
-  };
+  }, [pagination.page, pagination.limit, fetchWithCache]);
+
 
   const fetchAvailablePermissions = async () => {
     try {
@@ -119,7 +250,17 @@ const Users = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Client-side validation
+    // Enhanced client-side validation
+    if (!formData.username.trim()) {
+      toast.error('Username is required');
+      return;
+    }
+    
+    if (!formData.name.trim()) {
+      toast.error('Name is required');
+      return;
+    }
+    
     if (!editingUser && formData.password.length < 6) {
       toast.error('Password must be at least 6 characters long');
       return;
@@ -136,14 +277,24 @@ const Users = () => {
       return;
     }
     
+    // Validate permissions
+    const permissionWarnings = validatePermissions(formData.permissions);
+    if (permissionWarnings.length > 0) {
+      toast.warning(`Permission conflicts detected: ${permissionWarnings.join(', ')}`);
+      // Continue anyway, but show warning
+    }
+    
     setActionLoading(true);
     
     try {
+      let userId;
       if (editingUser) {
         await axios.put(`/api/users/${editingUser.id}`, formData);
+        userId = editingUser.id;
         toast.success('User updated successfully');
       } else {
-        await axios.post('/api/users', formData);
+        const response = await axios.post('/api/users', formData);
+        userId = response.data.data.id;
         toast.success('User created successfully');
       }
       
@@ -151,10 +302,23 @@ const Users = () => {
       setEditingUser(null);
       resetForm();
       setSelectedUsers([]); // Clear selected users after operation
+      
+      // Clear cache and refetch
+      clearCache();
       fetchUsers();
     } catch (error) {
       console.error('Error saving user:', error);
-      toast.error(error.response?.data?.message || 'Failed to save user');
+      
+      // More specific error messages
+      const errorMessage = error.response?.status === 409
+        ? 'Username or email already exists'
+        : error.response?.status === 403
+        ? 'You do not have permission to perform this action'
+        : error.response?.status === 400
+        ? error.response?.data?.message || 'Invalid user data provided'
+        : error.response?.data?.message || 'Failed to save user. Please try again.';
+        
+      toast.error(errorMessage);
     } finally {
       setActionLoading(false);
     }
@@ -168,7 +332,7 @@ const Users = () => {
       name: user.name,
       email: user.email || '',
       role: user.role,
-      permissions: user.permissions || []
+      permissions: user.permissions || [],
     });
     setShowModal(true);
   };
@@ -183,6 +347,13 @@ const Users = () => {
 
   const handlePermissionsSubmit = async (e) => {
     e.preventDefault();
+    
+    // Validate permissions
+    const permissionWarnings = validatePermissions(permissionsForm.permissions);
+    if (permissionWarnings.length > 0) {
+      toast.warning(`Permission conflicts detected: ${permissionWarnings.join(', ')}`);
+      // Continue anyway, but show warning
+    }
     
     setActionLoading(true);
     
@@ -215,9 +386,7 @@ const Users = () => {
   };
 
   const handleDeleteUser = (user) => {
-    // Get current user from auth context
-    const currentUser = JSON.parse(localStorage.getItem('user'));
-    
+    // Check if trying to delete current user
     if (currentUser && currentUser.id === user.id) {
       toast.error('You cannot delete your own account');
       return;
@@ -233,6 +402,28 @@ const Users = () => {
       type: 'danger',
       userId: user.id
     });
+  };
+
+  const handleExportCsv = async () => {
+    try {
+      const response = await axios.get('/api/users/export', {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `users_export_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success('Users exported successfully');
+    } catch (error) {
+      console.error('Error exporting users:', error);
+      toast.error('Failed to export users');
+    }
   };
 
   const handleBulkDelete = async () => {
@@ -271,9 +462,7 @@ const Users = () => {
   };
 
   const handleToggleActive = (user) => {
-    // Get current user from auth context
-    const currentUser = JSON.parse(localStorage.getItem('user'));
-    
+    // Check if trying to deactivate current user
     if (currentUser && currentUser.id === user.id && user.isActive) {
       toast.error('You cannot deactivate your own account');
       return;
@@ -319,25 +508,110 @@ const Users = () => {
     }
   };
 
-  const handlePermissionChange = (permission, checked) => {
-    setFormData(prev => ({
-      ...prev,
-      permissions: checked 
-        ? [...prev.permissions, permission]
-        : prev.permissions.filter(p => p !== permission)
-    }));
-  };
+  // Memoized grouped permissions (moved up to avoid hoisting issues)
+  const groupedPermissions = useMemo(() => {
+    return availablePermissions.reduce((acc, permission) => {
+      const [module] = permission.split('.');
+      if (!acc[module]) {
+        acc[module] = [];
+      }
+      acc[module].push(permission);
+      return acc;
+    }, {});
+  }, [availablePermissions]);
 
-  const handlePermissionsFormChange = (permission, checked) => {
-    setPermissionsForm(prev => ({
-      ...prev,
-      permissions: checked 
-        ? [...prev.permissions, permission]
-        : prev.permissions.filter(p => p !== permission)
-    }));
-  };
+  // Consolidated permission change handler
+  const handlePermissionChange = useCallback((permission, checked, isPermissionsModal = false) => {
+    if (isPermissionsModal) {
+      setPermissionsForm(prev => ({
+        ...prev,
+        permissions: checked 
+          ? [...prev.permissions, permission]
+          : prev.permissions.filter(p => p !== permission)
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        permissions: checked 
+          ? [...prev.permissions, permission]
+          : prev.permissions.filter(p => p !== permission)
+      }));
+    }
+  }, []);
 
-  const getRoleBadge = (role) => {
+  // Bulk permission operations
+  const handleBulkPermissionChange = useCallback((module, checked, isPermissionsModal = false) => {
+    const modulePermissions = groupedPermissions[module] || [];
+    
+    if (isPermissionsModal) {
+      setPermissionsForm(prev => ({
+        ...prev,
+        permissions: checked 
+          ? [...new Set([...prev.permissions, ...modulePermissions])]
+          : prev.permissions.filter(p => !modulePermissions.includes(p))
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        permissions: checked 
+          ? [...new Set([...prev.permissions, ...modulePermissions])]
+          : prev.permissions.filter(p => !modulePermissions.includes(p))
+      }));
+    }
+  }, [groupedPermissions]);
+
+  // Apply permission template based on role
+  const applyPermissionTemplate = useCallback((role, isPermissionsModal = false) => {
+    const templatePermissions = PERMISSION_TEMPLATES[role] || [];
+    
+    if (isPermissionsModal) {
+      setPermissionsForm(prev => ({
+        ...prev,
+        permissions: templatePermissions
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        permissions: templatePermissions
+      }));
+    }
+  }, []);
+
+  // Validate permissions (prevent invalid combinations)
+  const validatePermissions = useCallback((permissions) => {
+    const warnings = [];
+    
+    // Check for conflicting permissions (e.g., having both specific and wildcard)
+    const modules = [...new Set(permissions.map(p => p.split('.')[0]))];
+    
+    modules.forEach(module => {
+      const modulePermissions = permissions.filter(p => p.startsWith(module + '.'));
+      const hasWildcard = modulePermissions.includes(`${module}.*`);
+      const hasSpecific = modulePermissions.some(p => p !== `${module}.*`);
+      
+      if (hasWildcard && hasSpecific) {
+        warnings.push(`${module}.* already includes all ${module} permissions`);
+      }
+    });
+    
+    return warnings;
+  }, []);
+
+  // Get permission display name
+  const getPermissionDisplayName = useCallback((permission) => {
+    const [module, action] = permission.split('.');
+    const actionMap = {
+      'create': 'Create',
+      'read': 'View',
+      'update': 'Edit',
+      'delete': 'Delete',
+      '*': 'All Actions'
+    };
+    
+    return `${module.charAt(0).toUpperCase() + module.slice(1)} - ${actionMap[action] || action}`;
+  }, []);
+
+  const getRoleBadge = useCallback((role) => {
     const colors = {
       ADMIN: 'bg-blue-100 text-blue-800 border-blue-200',
       CASHIER: 'bg-green-100 text-green-800 border-green-200'
@@ -347,9 +621,9 @@ const Users = () => {
         {role}
       </span>
     );
-  };
+  }, []);
 
-  const getStatusBadge = (isActive) => {
+  const getStatusBadge = useCallback((isActive) => {
     return (
       <span className={`inline-flex items-center px-3 py-1 text-xs font-semibold rounded-full border ${
         isActive 
@@ -360,15 +634,15 @@ const Users = () => {
         {isActive ? 'Active' : 'Inactive'}
       </span>
     );
-  };
+  }, []);
 
-  const formatDate = (date) => {
+  const formatDate = useCallback((date) => {
     return new Date(date).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
     });
-  };
+  }, []);
 
   const ActionButton = ({ icon, label, onClick, color = 'primary' }) => (
     <button
@@ -380,24 +654,15 @@ const Users = () => {
     </button>
   );
 
-  // Group permissions by module
-  const groupedPermissions = availablePermissions.reduce((acc, permission) => {
-    const [module] = permission.split('.');
-    if (!acc[module]) {
-      acc[module] = [];
-    }
-    acc[module].push(permission);
-    return acc;
-  }, {});
 
-  // Calculate statistics
-  const stats = {
+  // Memoized statistics based on filtered users
+  const stats = useMemo(() => ({
     total: users.length,
     active: users.filter(u => u.isActive).length,
     inactive: users.filter(u => !u.isActive).length,
     admins: users.filter(u => u.role === 'ADMIN').length,
     cashiers: users.filter(u => u.role === 'CASHIER').length
-  };
+  }), [users]);
 
   if (loading) {
     return <LoadingSpinner />;
@@ -412,56 +677,110 @@ const Users = () => {
           
           {/* Status Cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-            {/* Total Users */}
-            <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
+            {/* Total Users - Not clickable */}
+            <div className="p-6 rounded-xl shadow-lg text-white" style={{ background: 'linear-gradient(to right, #53B312, #4A9E0F)' }}>
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm opacity-90">Total Users</p>
                   <p className="text-3xl font-bold">{stats.total}</p>
                 </div>
-                <div className="text-4xl">👥</div>
+                <div className="text-4xl">
+                  <Icon name="users" size="2xl" color="white" />
+                </div>
               </div>
             </div>
-            {/* Active */}
-            <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
+            
+            {/* Active - Clickable filter */}
+            <button 
+              onClick={() => {
+                const newFilter = quickFilter === 'active' ? '' : 'active';
+                setQuickFilter(newFilter);
+                setFilters(prev => ({ ...prev, status: newFilter }));
+              }}
+              className={`bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white hover:from-green-600 hover:to-green-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-green-300 focus:outline-none ${
+                quickFilter === 'active' ? 'ring-4 ring-green-300 scale-105' : ''
+              }`}
+              title={quickFilter === 'active' ? 'Click to show all users' : 'Click to filter and show only active users'}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm opacity-90">Active</p>
                   <p className="text-3xl font-bold">{stats.active}</p>
                 </div>
-                <div className="text-4xl">✅</div>
+                <div className="text-4xl">
+                  <Icon name="check-circle" size="2xl" color="white" />
+                </div>
               </div>
-            </div>
-            {/* Inactive */}
-            <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-xl shadow-lg text-white">
+            </button>
+            
+            {/* Inactive - Clickable filter */}
+            <button 
+              onClick={() => {
+                const newFilter = quickFilter === 'inactive' ? '' : 'inactive';
+                setQuickFilter(newFilter);
+                setFilters(prev => ({ ...prev, status: newFilter }));
+              }}
+              className={`bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-xl shadow-lg text-white hover:from-red-600 hover:to-red-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-red-300 focus:outline-none ${
+                quickFilter === 'inactive' ? 'ring-4 ring-red-300 scale-105' : ''
+              }`}
+              title={quickFilter === 'inactive' ? 'Click to show all users' : 'Click to filter and show only inactive users'}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm opacity-90">Inactive</p>
                   <p className="text-3xl font-bold">{stats.inactive}</p>
                 </div>
-                <div className="text-4xl">❌</div>
+                <div className="text-4xl">
+                  <Icon name="x-circle" size="2xl" color="white" />
+                </div>
               </div>
-            </div>
-            {/* Admins */}
-            <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
+            </button>
+            
+            {/* Admins - Clickable filter */}
+            <button 
+              onClick={() => {
+                const newFilter = quickFilter === 'ADMIN' ? '' : 'ADMIN';
+                setQuickFilter(newFilter);
+                setFilters(prev => ({ ...prev, role: newFilter }));
+              }}
+              className={`bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white hover:from-purple-600 hover:to-purple-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-purple-300 focus:outline-none ${
+                quickFilter === 'ADMIN' ? 'ring-4 ring-purple-300 scale-105' : ''
+              }`}
+              title={quickFilter === 'ADMIN' ? 'Click to show all users' : 'Click to filter and show only admin users'}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm opacity-90">Admins</p>
                   <p className="text-3xl font-bold">{stats.admins}</p>
                 </div>
-                <div className="text-4xl">👑</div>
+                <div className="text-4xl">
+                  <Icon name="shield" size="2xl" color="white" />
+                </div>
               </div>
-            </div>
-            {/* Cashiers */}
-            <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white">
+            </button>
+            
+            {/* Cashiers - Clickable filter */}
+            <button 
+              onClick={() => {
+                const newFilter = quickFilter === 'CASHIER' ? '' : 'CASHIER';
+                setQuickFilter(newFilter);
+                setFilters(prev => ({ ...prev, role: newFilter }));
+              }}
+              className={`bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white hover:from-orange-600 hover:to-orange-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-orange-300 focus:outline-none ${
+                quickFilter === 'CASHIER' ? 'ring-4 ring-orange-300 scale-105' : ''
+              }`}
+              title={quickFilter === 'CASHIER' ? 'Click to show all users' : 'Click to filter and show only cashier users'}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm opacity-90">Cashiers</p>
                   <p className="text-3xl font-bold">{stats.cashiers}</p>
                 </div>
-                <div className="text-4xl">💼</div>
+                <div className="text-4xl">
+                  <Icon name="user" size="2xl" color="white" />
+                </div>
               </div>
-            </div>
+            </button>
           </div>
         </div>
 
@@ -481,19 +800,30 @@ const Users = () => {
           >
             <Icon name="filter" className="mr-2" /> Filters
           </button>
-          {hasPermission('users.create') && (
-          <button
-            onClick={() => {
-              setEditingUser(null);
-              resetForm();
-              setShowModal(true);
-            }}
-              className="btn-primary flex items-center space-x-2"
-          >
-              <Icon name="add" size="sm" />
-              <span>Add User</span>
-          </button>
-          )}
+          <div className="flex items-center space-x-3">
+            {hasPermission('users.view') && (
+              <button
+                onClick={handleExportCsv}
+                className="btn-secondary flex items-center space-x-2"
+              >
+                <Icon name="download" size="sm" />
+                <span>Export</span>
+              </button>
+            )}
+            {hasPermission('users.create') && (
+              <button
+                onClick={() => {
+                  setEditingUser(null);
+                  resetForm();
+                  setShowModal(true);
+                }}
+                className="btn-primary flex items-center space-x-2"
+              >
+                <Icon name="add" size="sm" />
+                <span>Add User</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -550,6 +880,7 @@ const Users = () => {
             <button
               onClick={() => {
                 setFilters({ role: '', status: '', search: '' });
+                setQuickFilter('');
                 setPagination(prev => ({ ...prev, page: 1 }));
               }}
               className="btn-secondary"
@@ -566,13 +897,13 @@ const Users = () => {
         </div>
       )}
 
-            {/* Users List */}
+      {/* Users List */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
           <div className="flex justify-between items-center">
               <div>
               <h3 className="text-xl font-bold text-gradient flex items-center">
-                Users ({pagination.total})
+                Users ({quickFilter ? users.length : pagination.total})
               </h3>
               <p className="text-sm text-neutral-600 mt-1">
                 Manage restaurant users and their roles
@@ -609,7 +940,19 @@ const Users = () => {
                   Status
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Last Login
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Login Count
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Created By
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Created
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Shift
                 </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 </th>
@@ -650,13 +993,53 @@ const Users = () => {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    {getRoleBadge(user.role)}
+                    <div className="flex items-center space-x-2">
+                      {getRoleBadge(user.role)}
+                      {user.permissions && user.permissions.length > 0 && (
+                        <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                          +{user.permissions.length} custom
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                       {getStatusBadge(user.isActive)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {user.lastLogin ? formatDate(user.lastLogin) : 'Never'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        {user.loginCount || 0}
+                      </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {user.creator ? (
+                        <div>
+                          <div className="font-medium">{user.creator.name}</div>
+                          <div className="text-xs text-gray-400">@{user.creator.username}</div>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">System</span>
+                      )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatDate(user.createdAt)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {user.shift ? (
+                      <div className="flex items-center space-x-2">
+                        <Icon name="clock" size="sm" className="text-gray-400" />
+                        <div>
+                          <div className="font-medium text-gray-900">{user.shift.name}</div>
+                          <div className="text-xs text-gray-500">
+                            {user.shift.startTime} - {user.shift.endTime}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-gray-400">No shift assigned</span>
+                    )}
                   </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
@@ -714,11 +1097,11 @@ const Users = () => {
             </div>
             <h3 className="mt-2 text-sm font-medium text-gray-900">No users found</h3>
             <p className="mt-1 text-sm text-gray-500">
-              {filters.search || filters.role || filters.status
+              {filters.search || filters.role || filters.status || quickFilter
                 ? 'Try adjusting your filters to find what you\'re looking for.'
                 : 'Get started by creating your first user.'}
             </p>
-            {!filters.search && !filters.role && !filters.status && hasPermission('users.create') && (
+            {!filters.search && !filters.role && !filters.status && !quickFilter && hasPermission('users.create') && (
               <div className="mt-6">
                 <button
                   onClick={() => {
@@ -735,6 +1118,7 @@ const Users = () => {
           </div>
         )}
       </div>
+
 
       {/* Add/Edit User Modal */}
       {showModal && (
@@ -817,29 +1201,69 @@ const Users = () => {
                 </div>
               </div>
 
+
               {/* Permissions Section - Only show for Cashiers */}
               {formData.role === 'CASHIER' && (
                 <div className="border-t border-neutral-200 pt-4">
-                  <h3 className="text-lg font-semibold text-neutral-900 mb-4">Custom Permissions</h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-neutral-900">Custom Permissions</h3>
+                    <div className="flex space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => applyPermissionTemplate('CASHIER')}
+                        className="px-3 py-1 text-xs bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors"
+                      >
+                        Cashier Template
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, permissions: [] }))}
+                        className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-60 overflow-y-auto">
-                    {Object.entries(groupedPermissions).map(([module, permissions]) => (
-                      <div key={module} className="space-y-2">
-                        <h4 className="font-medium text-neutral-700 capitalize">{module}</h4>
-                        {permissions.map(permission => (
-                          <label key={permission} className="flex items-center space-x-2">
+                    {Object.entries(groupedPermissions).map(([module, permissions]) => {
+                      const modulePermissions = permissions.filter(p => formData.permissions.includes(p));
+                      const isModuleFullySelected = modulePermissions.length === permissions.length;
+                      const isModulePartiallySelected = modulePermissions.length > 0 && modulePermissions.length < permissions.length;
+                      
+                      return (
+                        <div key={module} className="space-y-2">
+                          <div className="flex items-center space-x-2">
                             <input
                               type="checkbox"
-                              checked={formData.permissions.includes(permission)}
-                              onChange={(e) => handlePermissionChange(permission, e.target.checked)}
+                              checked={isModuleFullySelected}
+                              ref={input => {
+                                if (input) input.indeterminate = isModulePartiallySelected;
+                              }}
+                              onChange={(e) => handleBulkPermissionChange(module, e.target.checked)}
                               className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500 focus:ring-2"
                             />
-                            <span className="text-sm text-neutral-600">
-                              {permission.split('.')[1]}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    ))}
+                            <h4 className="font-medium text-neutral-700 capitalize">
+                              {module} ({modulePermissions.length}/{permissions.length})
+                            </h4>
+                          </div>
+                          <div className="ml-6 space-y-1">
+                            {permissions.map(permission => (
+                              <label key={permission} className="flex items-center space-x-2">
+                                <input
+                                  type="checkbox"
+                                  checked={formData.permissions.includes(permission)}
+                                  onChange={(e) => handlePermissionChange(permission, e.target.checked)}
+                                  className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500 focus:ring-2"
+                                />
+                                <span className="text-sm text-neutral-600">
+                                  {getPermissionDisplayName(permission)}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -887,29 +1311,75 @@ const Users = () => {
             </div>
             
             <form onSubmit={handlePermissionsSubmit} className="p-6 space-y-4">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-neutral-600">Role:</span>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    editingUser?.role === 'ADMIN' 
+                      ? 'bg-blue-100 text-blue-800' 
+                      : 'bg-green-100 text-green-800'
+                  }`}>
+                    {editingUser?.role}
+                  </span>
+                </div>
+                <div className="flex space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => applyPermissionTemplate(editingUser?.role, true)}
+                    className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
+                  >
+                    Apply {editingUser?.role} Template
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPermissionsForm({ permissions: [] })}
+                    className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
+              
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {Object.entries(groupedPermissions).map(([module, permissions]) => (
-                  <div key={module} className="space-y-3">
-                    <h3 className="font-semibold text-neutral-900 capitalize border-b border-neutral-200 pb-2">
-                      {module}
-                    </h3>
-                    <div className="space-y-2">
-                      {permissions.map(permission => (
-                        <label key={permission} className="flex items-center space-x-2">
-                          <input
-                            type="checkbox"
-                            checked={permissionsForm.permissions.includes(permission)}
-                            onChange={(e) => handlePermissionsFormChange(permission, e.target.checked)}
-                            className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500 focus:ring-2"
-                          />
-                          <span className="text-sm text-neutral-600">
-                            {permission.split('.')[1]}
-                          </span>
-                        </label>
-                      ))}
+                {Object.entries(groupedPermissions).map(([module, permissions]) => {
+                  const modulePermissions = permissions.filter(p => permissionsForm.permissions.includes(p));
+                  const isModuleFullySelected = modulePermissions.length === permissions.length;
+                  const isModulePartiallySelected = modulePermissions.length > 0 && modulePermissions.length < permissions.length;
+                  
+                  return (
+                    <div key={module} className="space-y-3">
+                      <div className="flex items-center space-x-2 border-b border-neutral-200 pb-2">
+                        <input
+                          type="checkbox"
+                          checked={isModuleFullySelected}
+                          ref={input => {
+                            if (input) input.indeterminate = isModulePartiallySelected;
+                          }}
+                          onChange={(e) => handleBulkPermissionChange(module, e.target.checked, true)}
+                          className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500 focus:ring-2"
+                        />
+                        <h3 className="font-semibold text-neutral-900 capitalize">
+                          {module} ({modulePermissions.length}/{permissions.length})
+                        </h3>
+                      </div>
+                      <div className="ml-6 space-y-2">
+                        {permissions.map(permission => (
+                          <label key={permission} className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              checked={permissionsForm.permissions.includes(permission)}
+                              onChange={(e) => handlePermissionChange(permission, e.target.checked, true)}
+                              className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500 focus:ring-2"
+                            />
+                            <span className="text-sm text-neutral-600">
+                              {getPermissionDisplayName(permission)}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="flex items-center justify-end space-x-3 pt-4 border-t border-neutral-200">

@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import axios from 'axios';
+import { useAuth } from '../../contexts/AuthContext';
 
 const ReportsOverview = () => {
+  const { user, loading } = useAuth();
   const [dateRange, setDateRange] = useState('today');
   const [customDateRange, setCustomDateRange] = useState({
     startDate: '',
@@ -83,6 +85,25 @@ const ReportsOverview = () => {
     const option = dateRangeOptions.find(opt => opt.value === dateRange);
     return option ? option.label : 'Today';
   }, [dateRange, customDateRange, dateRangeOptions]);
+
+  // Show loading spinner while authentication is being checked
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  // Redirect cashiers directly to sales reports
+  if (user?.role === 'CASHIER') {
+    return <Navigate to="/reports/sales" replace />;
+  }
+
+  // If no user is found, redirect to login
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
 
   return (
     <div className="space-y-6">

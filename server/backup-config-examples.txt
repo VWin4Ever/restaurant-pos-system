@@ -1,0 +1,47 @@
+# Backup Configuration Examples
+# Copy these to your .env file or set as environment variables
+
+# ==============================================
+# BACKUP STORAGE LOCATION OPTIONS
+# ==============================================
+
+# Option 1: Use predefined locations
+# BACKUP_LOCATION=project      # Save to C:\xampp\htdocs\Theory\PosRes1\backups (DEFAULT)
+# BACKUP_LOCATION=desktop      # Save to Desktop/POS-Backups
+# BACKUP_LOCATION=documents    # Save to Documents/POS-Backups  
+# BACKUP_LOCATION=downloads    # Save to Downloads/POS-Backups
+# BACKUP_LOCATION=custom       # Save to C:\POS-Backups
+
+# Option 2: Use custom directory path
+# BACKUP_DIR="D:\Restaurant-Backups"
+# BACKUP_DIR="C:\Users\Lenovo\Documents\MyBackups"
+# BACKUP_DIR="E:\Database-Backups"
+
+# ==============================================
+# EXAMPLES FOR DIFFERENT SCENARIOS
+# ==============================================
+
+# For development - save to project folder (default)
+# BACKUP_LOCATION=project
+
+# For easy access - save to Desktop
+# BACKUP_LOCATION=desktop
+
+# For production - save to dedicated backup drive
+# BACKUP_DIR="D:\Production-Backups"
+
+# For shared network storage
+# BACKUP_DIR="\\Server\Shared\Backups\POS"
+
+# For cloud sync folder (like OneDrive, Dropbox)
+# BACKUP_DIR="C:\Users\Lenovo\OneDrive\POS-Backups"
+
+# ==============================================
+# HOW TO USE
+# ==============================================
+# 1. Choose one of the options above
+# 2. Uncomment the line you want (remove the #)
+# 3. Save this file as .env in the server directory
+# 4. Restart the server with: npm run dev
+# 5. Or set environment variable directly:
+#    BACKUP_LOCATION=desktop npm run dev

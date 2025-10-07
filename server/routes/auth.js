@@ -49,6 +49,18 @@ router.post('/login', loginValidation, async (req, res) => {
       });
     }
 
+    // Update login tracking
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastLogin: new Date(),
+        loginCount: {
+          increment: 1
+        },
+        updatedAt: new Date()
+      }
+    });
+
     // Generate JWT token
     const token = jwt.sign(
       { 
@@ -92,13 +104,16 @@ router.get('/profile', authenticateToken, async (req, res) => {
         email: true,
         role: true,
         isActive: true,
-        createdAt: true
+        createdAt: true,
+        updatedAt: true,
+        lastLogin: true,
+        loginCount: true
       }
     });
 
     // Get user permissions
     const { getUserPermissions } = require('../middleware/permissions');
-    const permissions = getUserPermissions(user.role);
+    const permissions = await getUserPermissions(user.id, user.role);
 
     res.json({
       success: true,
@@ -213,7 +228,9 @@ router.put('/profile', authenticateToken, [
         role: true,
         isActive: true,
         createdAt: true,
-        lastLoginAt: true
+        updatedAt: true,
+        lastLogin: true,
+        loginCount: true
       }
     });
 

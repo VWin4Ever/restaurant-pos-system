@@ -3,8 +3,11 @@ import axios from 'axios';
 import { toast } from 'react-toastify';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import ReportsFilter from './ReportsFilter';
+import { useAuth } from '../../contexts/AuthContext';
+import { Navigate } from 'react-router-dom';
 
 const StaffReports = () => {
+  const { user } = useAuth();
   const [activeReport, setActiveReport] = useState('performance');
   const [data, setData] = useState({});
   const [loading, setLocalLoading] = useState(false);
@@ -14,8 +17,13 @@ const StaffReports = () => {
     endDate: ''
   });
 
-  // Staff-focused reports
-  const reports = [
+  // Role-based staff reports
+  const isCashier = user?.role === 'CASHIER';
+  const reports = isCashier ? [
+    { id: 'performance', name: 'My Performance', icon: '📊', description: 'My productivity and metrics' },
+    { id: 'activity', name: 'My Activity', icon: '👥', description: 'My activity and orders handled' },
+    { id: 'sales', name: 'My Sales', icon: '💰', description: 'My sales performance' }
+  ] : [
     { id: 'performance', name: 'Performance', icon: '📊', description: 'Staff productivity and metrics' },
     { id: 'activity', name: 'Activity', icon: '👥', description: 'Staff activity and orders handled' },
     { id: 'sales', name: 'Sales', icon: '💰', description: 'Sales performance by staff' },
@@ -44,7 +52,9 @@ const StaffReports = () => {
         params.append('range', dateRange);
       }
 
-      const response = await axios.get(`/api/reports/staff/${activeReport}?${params}`);
+      // Use cashier-specific endpoints for cashiers
+      const endpoint = isCashier ? `/api/reports/cashier-${activeReport}` : `/api/reports/staff/${activeReport}`;
+      const response = await axios.get(`${endpoint}?${params}`);
       setData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch report data:', error);
@@ -463,6 +473,11 @@ const StaffReports = () => {
         return renderPerformance();
     }
   };
+
+  // Redirect cashiers to sales reports since they should only access sales
+  if (user?.role === 'CASHIER') {
+    return <Navigate to="/reports/sales" replace />;
+  }
 
   return (
     <div className="space-y-6">

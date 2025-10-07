@@ -6,6 +6,40 @@ const { requirePermission } = require('../middleware/permissions');
 const router = express.Router();
 const prisma = new PrismaClient();
 
+// Helper function for realistic cost price calculations
+const getRealisticCostPrice = (product) => {
+  // Use actual cost price if available
+  if (product.costPrice && parseFloat(product.costPrice) > 0) {
+    return parseFloat(product.costPrice);
+  }
+  
+  // Category-based realistic estimates based on restaurant industry standards
+  const categoryEstimates = {
+    'Beverages': 0.25,    // 25% cost (drinks have high margins)
+    'Coffee': 0.20,       // 20% cost (coffee has very high margins)
+    'Tea': 0.15,          // 15% cost (tea has extremely high margins)
+    'Food': 0.40,         // 40% cost (food has moderate margins)
+    'Appetizers': 0.35,   // 35% cost (appetizers have good margins)
+    'Main Course': 0.45,  // 45% cost (main courses have lower margins)
+    'Desserts': 0.35,     // 35% cost (desserts have good margins)
+    'Salads': 0.50,       // 50% cost (salads have lower margins due to freshness)
+    'Soups': 0.30,        // 30% cost (soups have good margins)
+    'Sandwiches': 0.42,   // 42% cost (sandwiches have moderate margins)
+    'Pizza': 0.38,        // 38% cost (pizza has good margins)
+    'Pasta': 0.35,        // 35% cost (pasta has good margins)
+    'Seafood': 0.55,      // 55% cost (seafood has lower margins)
+    'Meat': 0.50,         // 50% cost (meat has lower margins)
+    'Vegetarian': 0.45,   // 45% cost (vegetarian has moderate margins)
+    'Kids Menu': 0.40,    // 40% cost (kids menu has moderate margins)
+    'Specials': 0.45      // 45% cost (specials have moderate margins)
+  };
+  
+  const categoryName = product.category?.name || 'Food';
+  const estimate = categoryEstimates[categoryName] || 0.40; // Default to 40% for unknown categories
+  
+  return parseFloat(product.price) * estimate;
+};
+
 // Helper function to get date range
 const getDateRange = (range = 'today', startDate, endDate) => {
   let start, end;
@@ -214,18 +248,39 @@ router.get('/sales/category-sales', requirePermission('reports.view'), async (re
 
     const categorySales = {};
     orderItems.forEach(item => {
-      const categoryName = item.product.category.name;
+      const categoryName = item.product.category?.name || 'Unknown';
       if (!categorySales[categoryName]) {
         categorySales[categoryName] = { name: categoryName, revenue: 0, quantity: 0 };
       }
-      categorySales[categoryName].revenue += parseFloat(item.subtotal);
-      categorySales[categoryName].quantity += item.quantity;
+      
+      // Ensure proper number conversion and validation
+      const subtotal = parseFloat(item.subtotal) || 0;
+      const quantity = parseInt(item.quantity) || 0;
+      
+      categorySales[categoryName].revenue += subtotal;
+      categorySales[categoryName].quantity += quantity;
     });
 
+    const categorySalesArray = Object.values(categorySales)
+      .filter(item => item.revenue > 0 || item.quantity > 0) // Filter out empty categories
+      .sort((a, b) => b.revenue - a.revenue)
+      .map(item => ({
+        name: item.name,
+        revenue: parseFloat(item.revenue.toFixed(2)), // Ensure proper decimal formatting
+        quantity: parseInt(item.quantity)
+      }));
+
+    console.log('Category sales response:', JSON.stringify({
+      success: true,
+      data: {
+        categorySales: categorySalesArray
+      }
+    }, null, 2));
+    
     res.json({
       success: true,
       data: {
-        categorySales: Object.values(categorySales)
+        categorySales: categorySalesArray
       }
     });
   } catch (error) {
@@ -541,6 +596,146 @@ router.get('/sales/cancelled-sales', requirePermission('reports.view'), async (r
     res.status(500).json({
       success: false,
       message: 'Failed to get cancelled sales report'
+    });
+  }
+});
+
+// Comparative Analysis Report
+router.get('/comparative/period-analysis', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const { range, startDate, endDate, compareWith } = req.query;
+    const { start, end } = getDateRange(range, startDate, endDate);
+
+    // Calculate comparison period
+    let compareStart, compareEnd;
+    const periodLength = end.diff(start, 'day');
+    
+    if (compareWith === 'previous_period') {
+      compareEnd = start.subtract(1, 'day');
+      compareStart = compareEnd.subtract(periodLength, 'day');
+    } else if (compareWith === 'same_period_last_year') {
+      compareStart = start.subtract(1, 'year');
+      compareEnd = end.subtract(1, 'year');
+    } else {
+      // Default to previous period
+      compareEnd = start.subtract(1, 'day');
+      compareStart = compareEnd.subtract(periodLength, 'day');
+    }
+
+    // Get current period data
+    const currentOrders = await prisma.order.findMany({
+      where: {
+        status: 'COMPLETED',
+        createdAt: {
+          gte: start.toDate(),
+          lte: end.toDate()
+        }
+      },
+      include: {
+        orderItems: true
+      }
+    });
+
+    // Get comparison period data
+    const comparisonOrders = await prisma.order.findMany({
+      where: {
+        status: 'COMPLETED',
+        createdAt: {
+          gte: compareStart.toDate(),
+          lte: compareEnd.toDate()
+        }
+      },
+      include: {
+        orderItems: true
+      }
+    });
+
+    // Calculate metrics for both periods
+    const calculateMetrics = (orders) => {
+      const totalRevenue = orders.reduce((sum, order) => sum + parseFloat(order.total), 0);
+      const totalOrders = orders.length;
+      const totalItems = orders.reduce((sum, order) => 
+        sum + order.orderItems.reduce((itemSum, item) => itemSum + item.quantity, 0), 0
+      );
+      const averageOrder = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+      
+      return { totalRevenue, totalOrders, totalItems, averageOrder };
+    };
+
+    const currentMetrics = calculateMetrics(currentOrders);
+    const comparisonMetrics = calculateMetrics(comparisonOrders);
+
+    // Calculate growth percentages
+    const calculateGrowth = (current, previous) => {
+      if (previous === 0) return current > 0 ? 100 : 0;
+      return ((current - previous) / previous) * 100;
+    };
+
+    const growthAnalysis = {
+      revenueGrowth: calculateGrowth(currentMetrics.totalRevenue, comparisonMetrics.totalRevenue),
+      ordersGrowth: calculateGrowth(currentMetrics.totalOrders, comparisonMetrics.totalOrders),
+      itemsGrowth: calculateGrowth(currentMetrics.totalItems, comparisonMetrics.totalItems),
+      averageOrderGrowth: calculateGrowth(currentMetrics.averageOrder, comparisonMetrics.averageOrder)
+    };
+
+    // Add context and benchmarks to growth metrics
+    const getGrowthContext = (value, metric) => {
+      const thresholds = {
+        revenue: { excellent: 25, good: 15, moderate: 5, poor: -5 },
+        orders: { excellent: 20, good: 10, moderate: 3, poor: -3 },
+        items: { excellent: 20, good: 10, moderate: 3, poor: -3 },
+        averageOrder: { excellent: 15, good: 8, moderate: 2, poor: -2 }
+      };
+      
+      const t = thresholds[metric] || thresholds.revenue;
+      if (value >= t.excellent) return { level: 'excellent', color: 'green', icon: '🚀' };
+      if (value >= t.good) return { level: 'good', color: 'blue', icon: '📈' };
+      if (value >= t.moderate) return { level: 'moderate', color: 'yellow', icon: '📊' };
+      if (value >= t.poor) return { level: 'poor', color: 'orange', icon: '⚠️' };
+      return { level: 'critical', color: 'red', icon: '🔻' };
+    };
+
+    const growthWithContext = {
+      revenue: {
+        ...growthAnalysis,
+        revenueGrowth: growthAnalysis.revenueGrowth,
+        context: getGrowthContext(growthAnalysis.revenueGrowth, 'revenue')
+      },
+      orders: {
+        growth: growthAnalysis.ordersGrowth,
+        context: getGrowthContext(growthAnalysis.ordersGrowth, 'orders')
+      },
+      items: {
+        growth: growthAnalysis.itemsGrowth,
+        context: getGrowthContext(growthAnalysis.itemsGrowth, 'items')
+      },
+      averageOrder: {
+        growth: growthAnalysis.averageOrderGrowth,
+        context: getGrowthContext(growthAnalysis.averageOrderGrowth, 'averageOrder')
+      }
+    };
+
+    res.json({
+      success: true,
+      data: {
+        currentPeriod: {
+          ...currentMetrics,
+          period: `${start.format('YYYY-MM-DD')} to ${end.format('YYYY-MM-DD')}`
+        },
+        comparisonPeriod: {
+          ...comparisonMetrics,
+          period: `${compareStart.format('YYYY-MM-DD')} to ${compareEnd.format('YYYY-MM-DD')}`
+        },
+        growthAnalysis,
+        growthWithContext,
+        comparisonType: compareWith || 'previous_period'
+      }
+    });
+  } catch (error) {
+    console.error('Period analysis error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get period analysis'
     });
   }
 });
@@ -901,8 +1096,8 @@ router.get('/financial/tax-summary', requirePermission('reports.view'), async (r
   }
 });
 
-// Profit Report
-router.get('/financial/profit-report', requirePermission('reports.view'), async (req, res) => {
+// Enhanced Profit Report with Real Data and Category Analysis
+router.get('/financial/profit', requirePermission('reports.view'), async (req, res) => {
   try {
     const { range, startDate, endDate } = req.query;
     const { start, end } = getDateRange(range, startDate, endDate);
@@ -918,34 +1113,117 @@ router.get('/financial/profit-report', requirePermission('reports.view'), async 
         }
       },
       include: {
-        product: true
+        product: {
+          include: {
+            category: true
+          }
+        }
       }
     });
 
     let totalRevenue = 0;
     let totalCost = 0;
+    const categoryAnalysis = {};
 
     orderItems.forEach(item => {
       const revenue = parseFloat(item.subtotal);
-      // Since costPrice is not available, we'll estimate cost as 60% of revenue for demonstration
-      const estimatedCost = revenue * 0.6;
+      const costPrice = getRealisticCostPrice(item.product);
+      const actualCost = costPrice * item.quantity;
+      const profit = revenue - actualCost;
+      
       totalRevenue += revenue;
-      totalCost += estimatedCost;
+      totalCost += actualCost;
+
+      // Category analysis
+      const categoryName = item.product.category?.name || 'Unknown';
+      if (!categoryAnalysis[categoryName]) {
+        categoryAnalysis[categoryName] = {
+          category: categoryName,
+          revenue: 0,
+          cost: 0,
+          profit: 0,
+          quantity: 0,
+          margin: 0
+        };
+      }
+      
+      categoryAnalysis[categoryName].revenue += revenue;
+      categoryAnalysis[categoryName].cost += actualCost;
+      categoryAnalysis[categoryName].profit += profit;
+      categoryAnalysis[categoryName].quantity += item.quantity;
+    });
+
+    // Calculate margins for each category
+    Object.values(categoryAnalysis).forEach(cat => {
+      cat.margin = cat.revenue > 0 ? (cat.profit / cat.revenue) * 100 : 0;
     });
 
     const grossProfit = totalRevenue - totalCost;
     const profitMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
+    // Generate profit trend chart (daily breakdown)
+    const dailyData = {};
+    const daysDiff = end.diff(start, 'day');
+    
+    for (let i = 0; i <= daysDiff; i++) {
+      const currentDate = start.add(i, 'day');
+      const dateKey = currentDate.format('YYYY-MM-DD');
+      dailyData[dateKey] = { date: dateKey, revenue: 0, costs: 0, profit: 0 };
+    }
+
+    // Aggregate daily data
+    const orders = await prisma.order.findMany({
+      where: {
+        status: 'COMPLETED',
+        createdAt: {
+          gte: start.toDate(),
+          lte: end.toDate()
+        }
+      },
+      include: {
+        orderItems: {
+          include: {
+            product: {
+              include: {
+                category: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    orders.forEach(order => {
+      const orderDate = dayjs(order.createdAt).format('YYYY-MM-DD');
+      if (dailyData[orderDate]) {
+        const orderRevenue = parseFloat(order.total);
+        let orderCost = 0;
+        
+        order.orderItems.forEach(item => {
+          const costPrice = getRealisticCostPrice(item.product);
+          orderCost += costPrice * item.quantity;
+        });
+        
+        dailyData[orderDate].revenue += orderRevenue;
+        dailyData[orderDate].costs += orderCost;
+        dailyData[orderDate].profit += (orderRevenue - orderCost);
+      }
+    });
+
+    const profitChart = Object.values(dailyData).sort((a, b) => new Date(a.date) - new Date(b.date));
+
     res.json({
       success: true,
       data: {
         profitSummary: {
-          revenue: totalRevenue,
-          costOfGoods: totalCost,
-          grossProfit,
-          profitMargin,
+          totalRevenue,
+          totalCosts: totalCost,
+          netProfit: grossProfit,
+          profitMargin: Math.round(profitMargin * 100) / 100,
           period: `${start.format('YYYY-MM-DD')} to ${end.format('YYYY-MM-DD')}`
-        }
+        },
+        categoryAnalysis: Object.values(categoryAnalysis),
+        profitChart
       }
     });
   } catch (error) {
@@ -1171,11 +1449,14 @@ router.get('/operational/table-performance', requirePermission('reports.view'), 
       }
     });
 
-    // Calculate utilization and average turn time
-    const totalHours = (end.diff(start, 'hour') + 1);
+    // Calculate utilization and average turn time with realistic business hours
+    const BUSINESS_HOURS_PER_DAY = 12; // 12 hours operation (e.g., 10 AM - 10 PM)
+    const totalBusinessHours = Math.ceil(end.diff(start, 'day')) * BUSINESS_HOURS_PER_DAY;
+    
     Object.values(tablePerformance).forEach(table => {
-      table.utilization = Math.round((table.orderCount / totalHours) * 100);
-      table.averageTurnTime = table.orderCount > 0 ? Math.round(totalHours / table.orderCount) : 0;
+      // More realistic utilization calculation
+      table.utilization = Math.min(100, Math.round((table.orderCount / Math.max(1, totalBusinessHours / 24)) * 100));
+      table.averageTurnTime = table.orderCount > 0 ? Math.round(totalBusinessHours / table.orderCount) : 0;
     });
 
     const tableSummary = {
@@ -1649,15 +1930,9 @@ router.get('/inventory/current-stock', requirePermission('reports.view'), async 
 // Low Stock Alert
 router.get('/inventory/low-stock-alert', requirePermission('reports.view'), async (req, res) => {
   try {
-    const { range, startDate, endDate } = req.query;
-    const { start, end } = getDateRange(range, startDate, endDate);
-
-    const lowStockItems = await prisma.stock.findMany({
-      where: {
-        quantity: {
-          lte: prisma.stock.fields.minStock
-        }
-      },
+    // Fetch all stock items and filter in application layer
+    // Prisma doesn't support comparing two fields (quantity <= minStock) in a where clause
+    const allStock = await prisma.stock.findMany({
       include: {
         product: {
           include: {
@@ -1670,27 +1945,29 @@ router.get('/inventory/low-stock-alert', requirePermission('reports.view'), asyn
       }
     });
 
+    // Filter for low stock items (quantity <= minStock)
+    const lowStockItems = allStock.filter(item => item.quantity <= item.minStock);
+
+    // Transform to expected format with simplified structure for dashboard
+    const alertsFormatted = lowStockItems.map(item => ({
+      id: item.id,
+      productName: item.product.name,
+      category: item.product.category.name,
+      currentStock: item.quantity,
+      minStock: item.minStock,
+      deficit: Math.max(0, item.minStock - item.quantity),
+      lastUpdated: item.updatedAt,
+      alertLevel: item.quantity === 0 ? 'Critical' : 'Low Stock'
+    }));
+
     res.json({
       success: true,
-      data: {
-        lowStockItems,
-        alertCount: lowStockItems.length,
-        alertSummary: {
-          criticalItems: lowStockItems.filter(item => item.quantity === 0).length,
-          lowStockItems: lowStockItems.filter(item => item.quantity > 0 && item.quantity <= item.minStock).length,
-          totalAlerts: lowStockItems.length,
-          potentialLoss: lowStockItems.reduce((sum, item) => sum + (parseFloat(item.product.price) * item.quantity), 0)
-        },
-        alertDetails: lowStockItems.map(item => ({
-          id: item.id,
-          name: item.product.name,
-          category: item.product.category.name,
-          currentStock: item.quantity,
-          minStock: item.minStock,
-          deficit: Math.max(0, item.minStock - item.quantity),
-          lastUpdated: item.updatedAt,
-          alertLevel: item.quantity === 0 ? 'Critical' : 'Low Stock'
-        }))
+      data: alertsFormatted,
+      alertSummary: {
+        criticalItems: lowStockItems.filter(item => item.quantity === 0).length,
+        lowStockItems: lowStockItems.filter(item => item.quantity > 0 && item.quantity <= item.minStock).length,
+        totalAlerts: lowStockItems.length,
+        potentialLoss: lowStockItems.reduce((sum, item) => sum + (parseFloat(item.product.price) * item.quantity), 0)
       }
     });
   } catch (error) {
@@ -1726,29 +2003,6 @@ router.get('/inventory/stock-in-out', requirePermission('reports.view'), async (
   }
 });
 
-// Stock Wastage/Adjustment
-router.get('/inventory/stock-wastage', requirePermission('reports.view'), async (req, res) => {
-  try {
-    const { range, startDate, endDate } = req.query;
-    const { start, end } = getDateRange(range, startDate, endDate);
-
-    // This would need a StockAdjustment model in the database
-    // For now, we'll return a placeholder
-    res.json({
-      success: true,
-      data: {
-        message: 'Stock adjustment tracking not implemented yet',
-        adjustments: []
-      }
-    });
-  } catch (error) {
-    console.error('Stock wastage error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get stock wastage report'
-    });
-  }
-});
 
 // Stock Value Report
 router.get('/inventory/stock-value', requirePermission('reports.view'), async (req, res) => {
@@ -1919,6 +2173,644 @@ router.get('/cashier-dashboard', requirePermission('reports.view'), async (req, 
     res.status(500).json({
       success: false,
       message: 'Failed to get cashier dashboard data'
+    });
+  }
+});
+
+// Get cashier-specific sales data
+router.get('/cashier-sales', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { range, startDate, endDate } = req.query;
+    const { start, end } = getDateRange(range, startDate, endDate);
+
+    // Get cashier's sales for the period
+    const sales = await prisma.order.findMany({
+      where: {
+        userId: userId,
+        status: 'COMPLETED',
+        createdAt: {
+          gte: start.toDate(),
+          lte: end.toDate()
+        }
+      },
+      select: {
+        total: true,
+        createdAt: true
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    // Group by date for chart data
+    const salesByDate = {};
+    sales.forEach(order => {
+      const date = order.createdAt.toISOString().split('T')[0];
+      if (!salesByDate[date]) {
+        salesByDate[date] = { date, revenue: 0, orders: 0 };
+      }
+      salesByDate[date].revenue += parseFloat(order.total);
+      salesByDate[date].orders += 1;
+    });
+
+    const chartData = Object.values(salesByDate);
+
+    res.json({
+      success: true,
+      data: chartData
+    });
+  } catch (error) {
+    console.error('Get cashier sales error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get cashier sales data'
+    });
+  }
+});
+
+// Get cashier-specific top products
+router.get('/cashier-top-products', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { range, startDate, endDate, limit = 5 } = req.query;
+    const { start, end } = getDateRange(range, startDate, endDate);
+
+    const topProducts = await prisma.orderItem.groupBy({
+      by: ['productId'],
+      where: {
+        order: {
+          userId: userId,
+          status: 'COMPLETED',
+          createdAt: {
+            gte: start.toDate(),
+            lte: end.toDate()
+          }
+        }
+      },
+      _sum: {
+        quantity: true,
+        subtotal: true
+      },
+      orderBy: {
+        _sum: {
+          quantity: 'desc'
+        }
+      },
+      take: parseInt(limit)
+    });
+
+    // Get product details
+    const productIds = topProducts.map(item => item.productId);
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, name: true, category: { select: { name: true } } }
+    });
+
+    const result = topProducts.map(item => {
+      const product = products.find(p => p.id === item.productId);
+      return {
+        productId: item.productId,
+        productName: product?.name || 'Unknown Product',
+        category: product?.category?.name || 'Unknown',
+        quantity: item._sum.quantity || 0,
+        revenue: item._sum.subtotal || 0
+      };
+    });
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    console.error('Get cashier top products error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get cashier top products data'
+    });
+  }
+});
+
+// Get cashier-specific sales summary
+router.get('/cashier-summary', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { range, startDate, endDate } = req.query;
+    const { start, end } = getDateRange(range, startDate, endDate);
+
+    // Get cashier's sales for the period
+    const sales = await prisma.order.aggregate({
+      where: {
+        userId: userId,
+        status: 'COMPLETED',
+        createdAt: {
+          gte: start.toDate(),
+          lte: end.toDate()
+        }
+      },
+      _sum: {
+        total: true,
+        subtotal: true,
+        tax: true,
+        discount: true
+      },
+      _count: true
+    });
+
+    // Get total items sold
+    const totalItems = await prisma.orderItem.aggregate({
+      where: {
+        order: {
+          userId: userId,
+          status: 'COMPLETED',
+          createdAt: {
+            gte: start.toDate(),
+            lte: end.toDate()
+          }
+        }
+      },
+      _sum: {
+        quantity: true
+      }
+    });
+
+    // Get order count by status
+    const statusCounts = await prisma.order.groupBy({
+      by: ['status'],
+      where: {
+        userId: userId,
+        createdAt: {
+          gte: start.toDate(),
+          lte: end.toDate()
+        }
+      },
+      _count: true
+    });
+
+    const statusBreakdown = statusCounts.reduce((acc, item) => {
+      acc[item.status.toLowerCase()] = item._count;
+      return acc;
+    }, {});
+
+    // Get daily sales for trend chart
+    const dailyOrders = await prisma.order.findMany({
+      where: {
+        userId: userId,
+        status: 'COMPLETED',
+        createdAt: {
+          gte: start.toDate(),
+          lte: end.toDate()
+        }
+      },
+      select: {
+        total: true,
+        createdAt: true
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    // Group by date for trend chart
+    const dailySalesData = {};
+    dailyOrders.forEach(order => {
+      const date = order.createdAt.toISOString().split('T')[0];
+      if (!dailySalesData[date]) {
+        dailySalesData[date] = { date, revenue: 0, orders: 0 };
+      }
+      dailySalesData[date].revenue += parseFloat(order.total);
+      dailySalesData[date].orders += 1;
+    });
+
+    const dailySales = Object.values(dailySalesData).sort((a, b) => 
+      new Date(a.date) - new Date(b.date)
+    );
+
+    res.json({
+      success: true,
+      data: {
+        totalRevenue: sales._sum.total || 0,
+        totalOrders: sales._count,
+        totalItems: totalItems._sum.quantity || 0,
+        averageOrder: sales._count > 0 ? (sales._sum.total || 0) / sales._count : 0,
+        averageOrderValue: sales._count > 0 ? (sales._sum.total || 0) / sales._count : 0,
+        totalTax: sales._sum.tax || 0,
+        totalDiscount: sales._sum.discount || 0,
+        statusBreakdown,
+        dailySales
+      }
+    });
+  } catch (error) {
+    console.error('Get cashier summary error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get cashier summary data'
+    });
+  }
+});
+
+// Get cashier-specific menu performance
+router.get('/cashier-menu-performance', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { range, startDate, endDate } = req.query;
+    const { start, end } = getDateRange(range, startDate, endDate);
+
+    const menuPerformance = await prisma.orderItem.groupBy({
+      by: ['productId'],
+      where: {
+        order: {
+          userId: userId,
+          status: 'COMPLETED',
+          createdAt: {
+            gte: start.toDate(),
+            lte: end.toDate()
+          }
+        }
+      },
+      _sum: {
+        quantity: true,
+        subtotal: true
+      },
+      _avg: {
+        price: true
+      },
+      orderBy: {
+        _sum: {
+          quantity: 'desc'
+        }
+      }
+    });
+
+    // Get product details
+    const productIds = menuPerformance.map(item => item.productId);
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      include: { category: { select: { name: true } } }
+    });
+
+    const result = menuPerformance.map(item => {
+      const product = products.find(p => p.id === item.productId);
+      return {
+        productId: item.productId,
+        productName: product?.name || 'Unknown Product',
+        category: product?.category?.name || 'Unknown',
+        quantitySold: item._sum.quantity || 0,
+        revenue: item._sum.subtotal || 0,
+        averagePrice: item._avg.price || 0,
+        price: product?.price || 0
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        topItems: result.slice(0, 10).map(item => ({
+          name: item.productName,
+          revenue: item.revenue,
+          quantity: item.quantitySold
+        })),
+        items: result
+      }
+    });
+  } catch (error) {
+    console.error('Get cashier menu performance error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get cashier menu performance data'
+    });
+  }
+});
+
+// Get cashier-specific category sales
+router.get('/cashier-category-sales', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { range, startDate, endDate } = req.query;
+    const { start, end } = getDateRange(range, startDate, endDate);
+
+    const orderItems = await prisma.orderItem.groupBy({
+      by: ['productId'],
+      where: {
+        order: {
+          userId: userId,
+          status: 'COMPLETED',
+          createdAt: {
+            gte: start.toDate(),
+            lte: end.toDate()
+          }
+        }
+      },
+      _sum: {
+        quantity: true,
+        subtotal: true
+      }
+    });
+
+    // Get product categories
+    const productIds = orderItems.map(item => item.productId);
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      include: { category: { select: { name: true } } }
+    });
+
+    // Group by category
+    const categoryData = {};
+    orderItems.forEach(item => {
+      const product = products.find(p => p.id === item.productId);
+      const categoryName = product?.category?.name || 'Unknown';
+      
+      if (!categoryData[categoryName]) {
+        categoryData[categoryName] = {
+          category: categoryName,
+          revenue: 0,
+          quantity: 0,
+          orderCount: 0
+        };
+      }
+      
+      // Ensure proper number conversion and validation
+      const subtotal = parseFloat(item._sum.subtotal) || 0;
+      const quantity = parseInt(item._sum.quantity) || 0;
+      
+      categoryData[categoryName].revenue += subtotal;
+      categoryData[categoryName].quantity += quantity;
+      categoryData[categoryName].orderCount += 1;
+    });
+
+    const categorySalesArray = Object.values(categoryData)
+      .filter(item => item.revenue > 0 || item.quantity > 0) // Filter out empty categories
+      .sort((a, b) => b.revenue - a.revenue)
+      .map(item => ({
+        name: item.category,
+        revenue: parseFloat(item.revenue.toFixed(2)), // Ensure proper decimal formatting
+        quantity: parseInt(item.quantity),
+        orderCount: parseInt(item.orderCount)
+      }));
+
+    console.log('Cashier category sales response:', JSON.stringify({
+      success: true,
+      data: {
+        categorySales: categorySalesArray
+      }
+    }, null, 2));
+    
+    res.json({
+      success: true,
+      data: {
+        categorySales: categorySalesArray
+      }
+    });
+  } catch (error) {
+    console.error('Get cashier category sales error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get cashier category sales data'
+    });
+  }
+});
+
+// Get cashier-specific peak hours
+router.get('/cashier-peak-hours', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { range, startDate, endDate } = req.query;
+    const { start, end } = getDateRange(range, startDate, endDate);
+
+    // Get orders with their creation times
+    const orders = await prisma.order.findMany({
+      where: {
+        userId: userId,
+        status: 'COMPLETED',
+        createdAt: {
+          gte: start.toDate(),
+          lte: end.toDate()
+        }
+      },
+      select: {
+        total: true,
+        createdAt: true
+      }
+    });
+
+    // Group by hour
+    const hourlyData = {};
+    orders.forEach(order => {
+      const hour = new Date(order.createdAt).getHours();
+      const hourKey = `${hour.toString().padStart(2, '0')}:00`;
+      
+      if (!hourlyData[hourKey]) {
+        hourlyData[hourKey] = {
+          hour: hourKey,
+          revenue: 0,
+          orders: 0
+        };
+      }
+      
+      hourlyData[hourKey].revenue += parseFloat(order.total);
+      hourlyData[hourKey].orders += 1;
+    });
+
+    // Fill in missing hours with zero data
+    for (let i = 0; i < 24; i++) {
+      const hourKey = `${i.toString().padStart(2, '0')}:00`;
+      if (!hourlyData[hourKey]) {
+        hourlyData[hourKey] = {
+          hour: hourKey,
+          revenue: 0,
+          orders: 0
+        };
+      }
+    }
+
+    const hourlySales = Object.values(hourlyData).sort((a, b) => 
+      parseInt(a.hour.split(':')[0]) - parseInt(b.hour.split(':')[0])
+    );
+
+    // Find peak and slow hours
+    const sortedByRevenue = hourlySales.sort((a, b) => b.revenue - a.revenue);
+    const peakHour = sortedByRevenue.length > 0 ? sortedByRevenue[0].hour : 'N/A';
+    const slowHour = sortedByRevenue.length > 0 ? sortedByRevenue[sortedByRevenue.length - 1].hour : 'N/A';
+    const averageRevenue = hourlySales.reduce((sum, hour) => sum + hour.revenue, 0) / 24;
+
+    res.json({
+      success: true,
+      data: {
+        peakHours: {
+          peak: peakHour,
+          slow: slowHour,
+          average: averageRevenue
+        },
+        hourlySales
+      }
+    });
+  } catch (error) {
+    console.error('Get cashier peak hours error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get cashier peak hours data'
+    });
+  }
+});
+
+// Get cashier-specific activity
+router.get('/cashier-activity', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { range, startDate, endDate } = req.query;
+    const { start, end } = getDateRange(range, startDate, endDate);
+
+    // Get cashier's orders for the period
+    const orders = await prisma.order.findMany({
+      where: {
+        userId: userId,
+        createdAt: {
+          gte: start.toDate(),
+          lte: end.toDate()
+        }
+      },
+      include: {
+        table: {
+          select: { name: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Calculate activity metrics
+    const totalOrders = orders.length;
+    const completedOrders = orders.filter(order => order.status === 'COMPLETED').length;
+    const pendingOrders = orders.filter(order => order.status === 'PENDING').length;
+    const cancelledOrders = orders.filter(order => order.status === 'CANCELLED').length;
+    
+    const totalRevenue = orders
+      .filter(order => order.status === 'COMPLETED')
+      .reduce((sum, order) => sum + parseFloat(order.total), 0);
+
+    const averageOrderValue = completedOrders > 0 ? totalRevenue / completedOrders : 0;
+
+    res.json({
+      success: true,
+      data: {
+        totalOrders,
+        completedOrders,
+        pendingOrders,
+        cancelledOrders,
+        totalRevenue,
+        averageOrderValue,
+        recentOrders: orders.slice(0, 10).map(order => ({
+          id: order.id,
+          orderNumber: order.orderNumber,
+          tableName: order.table.name,
+          total: order.total,
+          status: order.status,
+          createdAt: order.createdAt
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Get cashier activity error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get cashier activity data'
+    });
+  }
+});
+
+// Get cashier-specific discounts
+router.get('/cashier-discounts', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { range, startDate, endDate } = req.query;
+    const { start, end } = getDateRange(range, startDate, endDate);
+
+    // Get cashier's orders with discounts
+    const orders = await prisma.order.findMany({
+      where: {
+        userId: userId,
+        status: 'COMPLETED',
+        createdAt: {
+          gte: start.toDate(),
+          lte: end.toDate()
+        },
+        discount: {
+          gt: 0.00
+        }
+      },
+      select: {
+        id: true,
+        orderNumber: true,
+        total: true,
+        discount: true,
+        subtotal: true,
+        createdAt: true,
+        table: {
+          select: { number: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Calculate discount summary
+    const totalDiscountAmount = orders.reduce((sum, order) => sum + parseFloat(order.discount), 0);
+    const totalOrdersWithDiscounts = orders.length;
+    const averageDiscount = totalOrdersWithDiscounts > 0 ? totalDiscountAmount / totalOrdersWithDiscounts : 0;
+    const totalRevenue = orders.reduce((sum, order) => sum + parseFloat(order.total), 0);
+    const discountPercentage = totalRevenue > 0 ? (totalDiscountAmount / totalRevenue) * 100 : 0;
+
+    // Group discounts by amount ranges
+    const discountRanges = {
+      '0-5%': 0,
+      '5-10%': 0,
+      '10-15%': 0,
+      '15%+': 0
+    };
+
+    orders.forEach(order => {
+      const subtotal = parseFloat(order.subtotal) || 0;
+      const discount = parseFloat(order.discount) || 0;
+      const discountPercent = subtotal > 0 ? (discount / subtotal) * 100 : 0;
+      
+      if (discountPercent < 5) discountRanges['0-5%']++;
+      else if (discountPercent < 10) discountRanges['5-10%']++;
+      else if (discountPercent < 15) discountRanges['10-15%']++;
+      else discountRanges['15%+']++;
+    });
+
+    const discountChart = Object.entries(discountRanges).map(([range, count]) => ({
+      range,
+      count,
+      percentage: totalOrdersWithDiscounts > 0 ? (count / totalOrdersWithDiscounts) * 100 : 0
+    }));
+
+    const responseData = {
+      success: true,
+      data: {
+        discountSummary: {
+          totalDiscounts: totalOrdersWithDiscounts, // Count of orders with discounts
+          totalAmount: totalDiscountAmount, // Total discount amount
+          averageDiscount,
+          staffCount: 1 // For cashier, it's always 1
+        },
+        discountChart,
+        discountDetails: orders.slice(0, 10).map(order => {
+          const subtotal = parseFloat(order.subtotal) || 0;
+          const discount = parseFloat(order.discount) || 0;
+          return {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            staffName: req.user.name, // Cashier's name
+            amount: discount,
+            reason: 'Discount applied',
+            date: order.createdAt
+          };
+        })
+      }
+    };
+    
+    console.log('Cashier discounts response:', JSON.stringify(responseData, null, 2));
+    res.json(responseData);
+  } catch (error) {
+    console.error('Get cashier discounts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get cashier discounts data'
     });
   }
 });
@@ -2880,7 +3772,7 @@ router.get('/staff/performance', requirePermission('reports.view'), async (req, 
     const { range, startDate, endDate } = req.query;
     const { start, end } = getDateRange(range, startDate, endDate);
 
-    // Get staff performance data
+    // Get staff performance data with optimized query
     const staffPerformance = await prisma.order.groupBy({
       by: ['userId'],
       where: {
@@ -2891,9 +3783,18 @@ router.get('/staff/performance', requirePermission('reports.view'), async (req, 
         }
       },
       _sum: {
+        total: true,
+        discount: true
+      },
+      _count: true,
+      _avg: {
         total: true
       },
-      _count: true
+      orderBy: {
+        _sum: {
+          total: 'desc'
+        }
+      }
     });
 
     // Get all users in one query for better performance
@@ -3175,50 +4076,6 @@ router.get('/inventory/stock-levels', requirePermission('reports.view'), async (
   }
 });
 
-router.get('/inventory/wastage', requirePermission('reports.view'), async (req, res) => {
-  try {
-    const { range, startDate, endDate } = req.query;
-    const { start, end } = getDateRange(range, startDate, endDate);
-
-    // Mock wastage data
-    const wastageByCategory = [
-      { name: 'Vegetables', wastage: 15 },
-      { name: 'Meat', wastage: 8 },
-      { name: 'Dairy', wastage: 12 },
-      { name: 'Grains', wastage: 5 }
-    ];
-
-    const wastageDetails = [
-      { id: 1, name: 'Tomatoes', category: 'Vegetables', wastagePercentage: 20, lostValue: 45.50, reason: 'Spoilage' },
-      { id: 2, name: 'Chicken Breast', category: 'Meat', wastagePercentage: 10, lostValue: 32.00, reason: 'Expired' }
-    ];
-
-    const totalWastage = wastageByCategory.reduce((sum, item) => sum + item.wastage, 0);
-    const lostValue = wastageDetails.reduce((sum, item) => sum + item.lostValue, 0);
-    const itemsWasted = wastageDetails.length;
-    const averageWastage = totalWastage / wastageByCategory.length;
-
-    res.json({
-      success: true,
-      data: {
-        wastageSummary: {
-          totalWastage,
-          lostValue,
-          itemsWasted,
-          averageWastage: Math.round(averageWastage * 10) / 10
-        },
-        wastageByCategory,
-        wastageDetails
-      }
-    });
-  } catch (error) {
-    console.error('Wastage error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get wastage report'
-    });
-  }
-});
 
 router.get('/inventory/movements', requirePermission('reports.view'), async (req, res) => {
   try {
@@ -3316,13 +4173,16 @@ router.get('/inventory/alerts', requirePermission('reports.view'), async (req, r
   }
 });
 
-// Financial Reports Routes
-router.get('/financial/profit', requirePermission('reports.view'), async (req, res) => {
+
+router.get('/financial/tax', requirePermission('reports.view'), async (req, res) => {
   try {
     const { range, startDate, endDate } = req.query;
     const { start, end } = getDateRange(range, startDate, endDate);
 
-    // Get profit data
+    // Get tax rate from settings
+    const settings = await prisma.settings.findFirst();
+    const taxRate = settings?.taxRate || 8.5; // Default to 8.5% if not set
+
     const orders = await prisma.order.findMany({
       where: {
         status: 'COMPLETED',
@@ -3333,61 +4193,78 @@ router.get('/financial/profit', requirePermission('reports.view'), async (req, r
       }
     });
 
-    const totalRevenue = orders.reduce((sum, order) => sum + parseFloat(order.total), 0);
-    const totalCosts = totalRevenue * 0.6; // Mock cost calculation
-    const netProfit = totalRevenue - totalCosts;
-    const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+    let totalRevenue = 0;
+    let totalTax = 0;
+    let taxableAmount = 0;
 
-    const profitChart = [
-      { date: '2024-01-01', revenue: 1200, costs: 720, profit: 480 },
-      { date: '2024-01-02', revenue: 1500, costs: 900, profit: 600 },
-      { date: '2024-01-03', revenue: 1100, costs: 660, profit: 440 }
-    ];
+    orders.forEach(order => {
+      const orderTotal = parseFloat(order.total);
+      const orderTax = parseFloat(order.tax || 0);
+      const orderSubtotal = parseFloat(order.subtotal || (orderTotal - orderTax));
+      
+      totalRevenue += orderTotal;
+      totalTax += orderTax;
+      taxableAmount += orderSubtotal;
+    });
 
-    res.json({
-      success: true,
-      data: {
-        profitSummary: {
-          totalRevenue,
-          totalCosts,
-          netProfit,
-          profitMargin: Math.round(profitMargin * 100) / 100
-        },
-        profitChart
+    // Calculate actual tax rate from data
+    const actualTaxRate = taxableAmount > 0 ? (totalTax / taxableAmount) * 100 : taxRate;
+
+    // Tax breakdown by category
+    const orderItems = await prisma.orderItem.findMany({
+      where: {
+        order: {
+          status: 'COMPLETED',
+          createdAt: {
+            gte: start.toDate(),
+            lte: end.toDate()
+          }
+        }
+      },
+      include: {
+        product: {
+          include: {
+            category: true
+          }
+        }
       }
     });
-  } catch (error) {
-    console.error('Profit error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get profit report'
+
+    const categoryTaxBreakdown = {};
+    orderItems.forEach(item => {
+      const categoryName = item.product.category?.name || 'Unknown';
+      const itemSubtotal = parseFloat(item.subtotal);
+      const itemTax = itemSubtotal * (taxRate / 100);
+      
+      if (!categoryTaxBreakdown[categoryName]) {
+        categoryTaxBreakdown[categoryName] = {
+          category: categoryName,
+          taxableAmount: 0,
+          taxAmount: 0,
+          percentage: 0
+        };
+      }
+      
+      categoryTaxBreakdown[categoryName].taxableAmount += itemSubtotal;
+      categoryTaxBreakdown[categoryName].taxAmount += itemTax;
     });
-  }
-});
 
-router.get('/financial/tax', requirePermission('reports.view'), async (req, res) => {
-  try {
-    const { range, startDate, endDate } = req.query;
-    const { start, end } = getDateRange(range, startDate, endDate);
+    // Calculate percentage of total tax for each category
+    Object.values(categoryTaxBreakdown).forEach(cat => {
+      cat.percentage = totalTax > 0 ? (cat.taxAmount / totalTax) * 100 : 0;
+    });
 
-    // Mock tax data
-    const taxChart = [
-      { name: 'Sales Tax', amount: 450 },
-      { name: 'VAT', amount: 320 },
-      { name: 'Other Taxes', amount: 180 }
-    ];
-
-    const totalTax = taxChart.reduce((sum, tax) => sum + tax.amount, 0);
-    const taxableAmount = 9500; // Mock data
-    const taxRate = 10; // Mock data
+    const taxChart = Object.values(categoryTaxBreakdown);
 
     res.json({
       success: true,
       data: {
         taxSummary: {
-          totalTax,
+          totalRevenue,
           taxableAmount,
-          taxRate
+          totalTax,
+          taxRate: Math.round(actualTaxRate * 100) / 100,
+          configuredTaxRate: taxRate
         },
         taxChart
       }
@@ -3406,17 +4283,40 @@ router.get('/financial/payments', requirePermission('reports.view'), async (req,
     const { range, startDate, endDate } = req.query;
     const { start, end } = getDateRange(range, startDate, endDate);
 
-    // Mock payment data
-    const paymentChart = [
-      { method: 'Card', amount: 2500 },
-      { method: 'Cash', amount: 1800 },
-      { method: 'Digital', amount: 1200 }
-    ];
+    const orders = await prisma.order.findMany({
+      where: {
+        status: 'COMPLETED',
+        createdAt: {
+          gte: start.toDate(),
+          lte: end.toDate()
+        }
+      }
+    });
 
-    const cardPayments = paymentChart.find(p => p.method === 'Card')?.amount || 0;
-    const cashPayments = paymentChart.find(p => p.method === 'Cash')?.amount || 0;
-    const digitalPayments = paymentChart.find(p => p.method === 'Digital')?.amount || 0;
-    const totalPayments = cardPayments + cashPayments + digitalPayments;
+    // Payment method breakdown
+    const paymentMethods = {};
+    orders.forEach(order => {
+      const method = order.paymentMethod || 'Unknown';
+      if (!paymentMethods[method]) {
+        paymentMethods[method] = { method, amount: 0, count: 0 };
+      }
+      paymentMethods[method].amount += parseFloat(order.total);
+      paymentMethods[method].count += 1;
+    });
+
+    // Calculate totals
+    const cardPayments = paymentMethods['CARD']?.amount || 0;
+    const cashPayments = paymentMethods['CASH']?.amount || 0;
+    const digitalPayments = paymentMethods['DIGITAL']?.amount || 0;
+    const totalPayments = Object.values(paymentMethods).reduce((sum, pm) => sum + pm.amount, 0);
+
+    // Format for chart
+    const paymentChart = Object.values(paymentMethods).map(pm => ({
+      method: pm.method,
+      amount: pm.amount,
+      count: pm.count,
+      percentage: totalPayments > 0 ? (pm.amount / totalPayments) * 100 : 0
+    }));
 
     res.json({
       success: true,
@@ -3444,7 +4344,7 @@ router.get('/financial/end-of-day', requirePermission('reports.view'), async (re
     const { range, startDate, endDate } = req.query;
     const { start, end } = getDateRange(range, startDate, endDate);
 
-    // Get end of day data
+    // Get end of day data with order items
     const orders = await prisma.order.findMany({
       where: {
         status: 'COMPLETED',
@@ -3452,19 +4352,64 @@ router.get('/financial/end-of-day', requirePermission('reports.view'), async (re
           gte: start.toDate(),
           lte: end.toDate()
         }
+      },
+      include: {
+        orderItems: {
+          include: {
+            product: {
+              include: {
+                category: true
+              }
+            }
+          }
+        }
       }
     });
 
     const dailyRevenue = orders.reduce((sum, order) => sum + parseFloat(order.total), 0);
     const ordersToday = orders.length;
     const averageOrderValue = ordersToday > 0 ? dailyRevenue / ordersToday : 0;
-    const closingTime = '22:00'; // Mock data
+    
+    // Calculate actual closing time from last order
+    const lastOrder = orders.length > 0 ? 
+      orders.reduce((latest, order) => 
+        new Date(order.createdAt) > new Date(latest.createdAt) ? order : latest
+      ) : null;
+    
+    const closingTime = lastOrder ? 
+      dayjs(lastOrder.createdAt).format('HH:mm') : 
+      'No orders';
 
-    const endOfDayDetails = [
-      { category: 'Food', amount: dailyRevenue * 0.7, count: ordersToday * 0.8, percentage: 70 },
-      { category: 'Beverages', amount: dailyRevenue * 0.2, count: ordersToday * 0.9, percentage: 20 },
-      { category: 'Desserts', amount: dailyRevenue * 0.1, count: ordersToday * 0.3, percentage: 10 }
-    ];
+    // Real category analysis
+    const categoryAnalysis = {};
+    let totalItems = 0;
+
+    orders.forEach(order => {
+      order.orderItems.forEach(item => {
+        const categoryName = item.product.category?.name || 'Unknown';
+        const itemAmount = parseFloat(item.subtotal);
+        
+        if (!categoryAnalysis[categoryName]) {
+          categoryAnalysis[categoryName] = {
+            category: categoryName,
+            amount: 0,
+            count: 0,
+            percentage: 0
+          };
+        }
+        
+        categoryAnalysis[categoryName].amount += itemAmount;
+        categoryAnalysis[categoryName].count += item.quantity;
+        totalItems += item.quantity;
+      });
+    });
+
+    // Calculate percentages
+    Object.values(categoryAnalysis).forEach(cat => {
+      cat.percentage = dailyRevenue > 0 ? (cat.amount / dailyRevenue) * 100 : 0;
+    });
+
+    const endOfDayDetails = Object.values(categoryAnalysis);
 
     res.json({
       success: true,
@@ -3473,7 +4418,8 @@ router.get('/financial/end-of-day', requirePermission('reports.view'), async (re
           dailyRevenue,
           ordersToday,
           averageOrderValue: Math.round(averageOrderValue * 100) / 100,
-          closingTime
+          closingTime,
+          totalItems
         },
         endOfDayDetails
       }
@@ -3483,6 +4429,141 @@ router.get('/financial/end-of-day', requirePermission('reports.view'), async (re
     res.status(500).json({
       success: false,
       message: 'Failed to get end of day report'
+    });
+  }
+});
+
+// Enhanced Sales Report with Advanced Filtering
+router.get('/sales/enhanced', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const { 
+      range, 
+      startDate, 
+      endDate, 
+      staffId, 
+      paymentMethod, 
+      tableId, 
+      categoryId,
+      minAmount,
+      maxAmount
+    } = req.query;
+    
+    const { start, end } = getDateRange(range, startDate, endDate);
+
+    // Build enhanced where clause
+    const where = {
+      status: 'COMPLETED',
+      createdAt: {
+        gte: start.toDate(),
+        lte: end.toDate()
+      }
+    };
+
+    // Add optional filters
+    if (staffId) where.userId = parseInt(staffId);
+    if (paymentMethod) where.paymentMethod = paymentMethod;
+    if (tableId) where.tableId = parseInt(tableId);
+    if (minAmount || maxAmount) {
+      where.total = {};
+      if (minAmount) where.total.gte = parseFloat(minAmount);
+      if (maxAmount) where.total.lte = parseFloat(maxAmount);
+    }
+
+    const orders = await prisma.order.findMany({
+      where,
+      include: {
+        user: {
+          select: { id: true, name: true, username: true }
+        },
+        table: {
+          select: { id: true, number: true }
+        },
+        orderItems: {
+          include: {
+            product: {
+              include: {
+                category: {
+                  select: { id: true, name: true }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Filter orders by category if specified
+    let filteredOrders = orders;
+    if (categoryId) {
+      filteredOrders = orders.filter(order => 
+        order.orderItems.some(item => item.product.categoryId === parseInt(categoryId))
+      );
+    }
+
+    // Calculate enhanced metrics
+    const totalRevenue = filteredOrders.reduce((sum, order) => sum + parseFloat(order.total), 0);
+    const totalOrders = filteredOrders.length;
+    const totalItems = filteredOrders.reduce((sum, order) => 
+      sum + order.orderItems.reduce((itemSum, item) => itemSum + item.quantity, 0), 0
+    );
+    const averageOrder = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    // Staff performance breakdown
+    const staffPerformance = {};
+    filteredOrders.forEach(order => {
+      const staffId = order.userId;
+      if (!staffPerformance[staffId]) {
+        staffPerformance[staffId] = {
+          user: order.user,
+          orders: 0,
+          revenue: 0,
+          items: 0
+        };
+      }
+      staffPerformance[staffId].orders += 1;
+      staffPerformance[staffId].revenue += parseFloat(order.total);
+      staffPerformance[staffId].items += order.orderItems.reduce((sum, item) => sum + item.quantity, 0);
+    });
+
+    // Payment method breakdown
+    const paymentBreakdown = {};
+    filteredOrders.forEach(order => {
+      const method = order.paymentMethod || 'Unknown';
+      if (!paymentBreakdown[method]) {
+        paymentBreakdown[method] = { method, count: 0, amount: 0 };
+      }
+      paymentBreakdown[method].count += 1;
+      paymentBreakdown[method].amount += parseFloat(order.total);
+    });
+
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalRevenue,
+          totalOrders,
+          totalItems,
+          averageOrder
+        },
+        staffPerformance: Object.values(staffPerformance),
+        paymentBreakdown: Object.values(paymentBreakdown),
+        orders: filteredOrders,
+        appliedFilters: {
+          dateRange: `${start.format('YYYY-MM-DD')} to ${end.format('YYYY-MM-DD')}`,
+          staffId: staffId || 'All',
+          paymentMethod: paymentMethod || 'All',
+          tableId: tableId || 'All',
+          categoryId: categoryId || 'All',
+          amountRange: `${minAmount || '0'} - ${maxAmount || '∞'}`
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Enhanced sales report error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get enhanced sales report'
     });
   }
 });

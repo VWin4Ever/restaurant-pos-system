@@ -23,7 +23,17 @@ const getBusinessSettings = async () => {
     timezone: 'America/New_York'
   };
   
-  return settingsRecord?.data || defaultBusinessSettings;
+  // Parse the JSON data from database if it exists
+  if (settingsRecord?.data) {
+    try {
+      return JSON.parse(settingsRecord.data);
+    } catch (error) {
+      console.error('Failed to parse business settings:', error);
+      return defaultBusinessSettings;
+    }
+  }
+  
+  return defaultBusinessSettings;
 };
 
 // Generate order number
@@ -53,6 +63,11 @@ router.get('/', async (req, res) => {
     if (status) where.status = status;
     if (tableId && !isNaN(parseInt(tableId))) where.tableId = parseInt(tableId);
     if (userId && !isNaN(parseInt(userId))) where.userId = parseInt(userId);
+    
+    // Role-based filtering: Cashiers can only see their own orders
+    if (req.user.role === 'CASHIER') {
+      where.userId = req.user.id;
+    }
     
     if (startDate || endDate) {
       where.createdAt = {};
@@ -218,8 +233,8 @@ router.post('/', [
         });
       }
 
-      // Check stock for drinks
-      if (product.isDrink) {
+      // Check stock for products that need stock tracking
+      if (product.needStock) {
         if (!product.stock || product.stock.quantity < item.quantity) {
           return res.status(400).json({
             success: false,
@@ -333,7 +348,18 @@ router.post('/', [
 
 // Update order status and process payment
 router.patch('/:id/pay', [
-  body('paymentMethod').isIn(['CASH', 'CARD']).withMessage('Payment method is required')
+  body('currency').optional().isIn(['USD', 'Riel']).withMessage('Invalid currency'),
+  body('splitBill').optional().isBoolean().withMessage('Split bill must be boolean'),
+  body('splitAmounts').optional().isArray().withMessage('Split amounts must be array'),
+  body('mixedPayments').optional().isBoolean().withMessage('Mixed payments must be boolean'),
+  body('paymentMethods').optional().custom((value) => {
+    if (value === null || value === undefined) return true;
+    if (Array.isArray(value)) return true;
+    throw new Error('Payment methods must be an array');
+  }),
+  body('nestedPayments').optional().isBoolean().withMessage('Nested payments must be boolean'),
+  body('mixedCurrency').optional().isBoolean().withMessage('Mixed currency must be boolean'),
+  body('splitMixedCurrency').optional().isBoolean().withMessage('Split mixed currency must be boolean')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -345,7 +371,13 @@ router.patch('/:id/pay', [
       });
     }
 
-    const { paymentMethod } = req.body;
+    const { currency = 'USD', splitBill = false, splitAmounts = [], mixedPayments = false, paymentMethods = [], nestedPayments = false, mixedCurrency = false, splitMixedCurrency = false } = req.body;
+    
+    // Ensure paymentMethods is always an array
+    const safePaymentMethods = Array.isArray(paymentMethods) ? paymentMethods : [];
+    
+    // Check if any split has mixed payments (nested payments)
+    const hasNestedPayments = splitBill && splitAmounts.some(split => split.mixedPayments);
     const orderId = parseInt(req.params.id);
 
     const order = await prisma.order.findUnique({
@@ -378,18 +410,34 @@ router.patch('/:id/pay', [
 
     // Process payment and update stock
     await prisma.$transaction(async (tx) => {
+      // Determine primary payment method
+      let primaryPaymentMethod = 'CASH';
+      if (mixedPayments && safePaymentMethods.length > 0) {
+        primaryPaymentMethod = safePaymentMethods[0].method;
+      } else if (safePaymentMethods.length > 0) {
+        primaryPaymentMethod = safePaymentMethods[0].method;
+      }
+
       // Update order status
       await tx.order.update({
         where: { id: orderId },
         data: {
           status: 'COMPLETED',
-          paymentMethod
+          paymentMethod: primaryPaymentMethod,
+          currency: currency,
+          splitBill: splitBill,
+          splitAmounts: splitBill ? JSON.stringify(splitAmounts) : null,
+          mixedPayments: mixedPayments,
+          paymentMethods: mixedPayments ? JSON.stringify(safePaymentMethods) : null,
+          nestedPayments: hasNestedPayments,
+          mixedCurrency: mixedCurrency,
+          splitMixedCurrency: splitBill && splitAmounts.some(split => split.mixedCurrency)
         }
       });
 
-      // Deduct stock for drinks
+      // Deduct stock for products that need stock tracking
       for (const item of order.orderItems) {
-        if (item.product.isDrink && item.product.stock) {
+        if (item.product.needStock && item.product.stock) {
           const newQuantity = item.product.stock.quantity - item.quantity;
           
           await tx.stock.update({
@@ -558,8 +606,8 @@ router.put('/:id', [
         });
       }
 
-      // Check stock for drinks
-      if (product.isDrink) {
+      // Check stock for products that need stock tracking
+      if (product.needStock) {
         const currentStock = product.stock?.quantity || 0;
         const currentOrderQuantity = existingOrder.orderItems
           .filter(oi => oi.productId === item.productId)
@@ -587,7 +635,20 @@ router.put('/:id', [
     }
 
     // Use original business snapshot for tax calculation to maintain historical accuracy
-    const businessSnapshot = existingOrder.businessSnapshot || await getBusinessSettings();
+    let businessSnapshot = existingOrder.businessSnapshot;
+    
+    // Parse business snapshot if it's a string
+    if (businessSnapshot && typeof businessSnapshot === 'string') {
+      try {
+        businessSnapshot = JSON.parse(businessSnapshot);
+      } catch (error) {
+        console.error('Failed to parse business snapshot:', error);
+        businessSnapshot = await getBusinessSettings();
+      }
+    } else if (!businessSnapshot) {
+      businessSnapshot = await getBusinessSettings();
+    }
+    
     const taxRate = businessSnapshot.taxRate || 8.5;
     const tax = (subtotal * taxRate) / 100;
     const total = subtotal + tax - discount;
@@ -663,6 +724,156 @@ router.put('/:id', [
     res.status(500).json({
       success: false,
       message: 'Failed to update order'
+    });
+  }
+});
+
+// Change order table assignment
+router.patch('/:id/table', [
+  body('tableId').isInt().withMessage('Table ID is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: errors.array()
+      });
+    }
+
+    const orderId = parseInt(req.params.id);
+    const { tableId } = req.body;
+
+    // Check if order exists and is pending
+    const existingOrder = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { table: true }
+    });
+
+    if (!existingOrder) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+
+    if (existingOrder.status !== 'PENDING') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only pending orders can have their table changed'
+      });
+    }
+
+    // Check if new table exists and is available
+    const newTable = await prisma.table.findUnique({
+      where: { id: tableId }
+    });
+
+    if (!newTable) {
+      return res.status(404).json({
+        success: false,
+        message: 'Table not found'
+      });
+    }
+
+    if (newTable.maintenance) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot assign order to a table that is out of service'
+      });
+    }
+
+    if (newTable.status !== 'AVAILABLE' && newTable.status !== 'RESERVED') {
+      return res.status(400).json({
+        success: false,
+        message: `Table ${newTable.number} is not available. Current status: ${newTable.status}`
+      });
+    }
+
+    // Check if the new table already has an active order
+    const existingOrderOnNewTable = await prisma.order.findFirst({
+      where: {
+        tableId: tableId,
+        status: 'PENDING'
+      }
+    });
+
+    if (existingOrderOnNewTable && existingOrderOnNewTable.id !== orderId) {
+      return res.status(400).json({
+        success: false,
+        message: `Table ${newTable.number} already has an active order`
+      });
+    }
+
+    // Update order table assignment and table statuses
+    await prisma.$transaction(async (tx) => {
+      // Update order table assignment
+      await tx.order.update({
+        where: { id: orderId },
+        data: { tableId: tableId }
+      });
+
+      // Set old table to available
+      await tx.table.update({
+        where: { id: existingOrder.tableId },
+        data: { status: 'AVAILABLE' }
+      });
+
+      // Set new table to occupied
+      await tx.table.update({
+        where: { id: tableId },
+        data: { status: 'OCCUPIED' }
+      });
+    });
+
+    // Fetch updated order with new table
+    const updatedOrder = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        table: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true
+          }
+        },
+        orderItems: {
+          include: {
+            product: {
+              include: {
+                category: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Send WebSocket notifications
+    if (global.wss) {
+      // Get updated tables for notifications
+      const [oldTable, newTable] = await Promise.all([
+        prisma.table.findUnique({ where: { id: existingOrder.tableId } }),
+        prisma.table.findUnique({ where: { id: tableId } })
+      ]);
+      
+      global.wss.sendTableUpdate(oldTable);
+      global.wss.sendTableUpdate(newTable);
+      global.wss.sendOrderUpdate({ type: 'order_updated', order: updatedOrder });
+    }
+
+    res.json({
+      success: true,
+      message: 'Table assignment updated successfully',
+      data: updatedOrder
+    });
+  } catch (error) {
+    console.error('Change order table error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to change order table'
     });
   }
 });

@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
+import { Navigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 import ReportsFilter from './ReportsFilter';
+import { useAuth } from '../../contexts/AuthContext';
 
 const SalesReports = () => {
+  const { user, loading: authLoading } = useAuth();
   const [activeReport, setActiveReport] = useState('summary');
   const [data, setData] = useState({});
   const [loading, setLocalLoading] = useState(false);
@@ -14,8 +17,15 @@ const SalesReports = () => {
     endDate: ''
   });
 
-  // Restaurant-focused sales reports
-  const reports = [
+  // Role-based sales reports - same names, different data
+  const isCashier = user?.role === 'CASHIER';
+  const reports = isCashier ? [
+    { id: 'summary', name: 'Sales Summary', icon: '📊', description: 'Daily revenue and order overview' },
+    { id: 'menu-performance', name: 'Menu Performance', icon: '🍽️', description: 'Best and worst selling items' },
+    { id: 'peak-hours', name: 'Peak Hours', icon: '⏰', description: 'Busiest times and patterns' },
+    { id: 'category-sales', name: 'Category Sales', icon: '🍺', description: 'Performance by menu categories' },
+    { id: 'discounts', name: 'Discounts', icon: '🎫', description: 'Discount impact on revenue' }
+  ] : [
     { id: 'summary', name: 'Sales Summary', icon: '📊', description: 'Daily revenue and order overview' },
     { id: 'menu-performance', name: 'Menu Performance', icon: '🍽️', description: 'Best and worst selling items' },
     { id: 'peak-hours', name: 'Peak Hours', icon: '⏰', description: 'Busiest times and patterns' },
@@ -48,11 +58,23 @@ const SalesReports = () => {
         params.append('range', dateRange);
       }
 
-      const response = await axios.get(`/api/reports/sales/${activeReport}?${params}`);
-      setData(response.data.data);
+      // Use cashier-specific endpoints for cashiers
+      const endpoint = isCashier ? `/api/reports/cashier-${activeReport}` : `/api/reports/sales/${activeReport}`;
+      console.log('Fetching from endpoint:', endpoint);
+      const response = await axios.get(`${endpoint}?${params}`);
+      console.log('Frontend received data:', response.data);
+      
+      if (response.data && response.data.success) {
+        setData(response.data.data || {});
+      } else {
+        console.warn('API response indicates failure:', response.data);
+        setData({});
+      }
     } catch (error) {
       console.error('Failed to fetch report data:', error);
       toast.error('Failed to load report data');
+      // Set empty data on error to show empty state
+      setData({});
     } finally {
       const elapsedTime = Date.now() - startTime;
       const remainingTime = Math.max(0, minLoadingTime - elapsedTime);
@@ -61,7 +83,7 @@ const SalesReports = () => {
         setLocalLoading(false);
       }, remainingTime);
     }
-  }, [activeReport, dateRange, customDateRange.startDate, customDateRange.endDate]);
+  }, [activeReport, dateRange, customDateRange.startDate, customDateRange.endDate, isCashier]);
 
   const exportReport = useCallback(async (format = 'csv') => {
     try {
@@ -76,7 +98,9 @@ const SalesReports = () => {
       }
       params.append('format', format);
 
-      const response = await axios.get(`/api/reports/sales/${activeReport}/export?${params}`, {
+      // Use cashier-specific endpoints for cashiers
+      const endpoint = isCashier ? `/api/reports/cashier-${activeReport}/export` : `/api/reports/sales/${activeReport}/export`;
+      const response = await axios.get(`${endpoint}?${params}`, {
         responseType: 'blob'
       });
       
@@ -100,7 +124,7 @@ const SalesReports = () => {
       console.error('Failed to export report:', error);
       toast.error('Failed to export report. Please try again.');
     }
-  }, [activeReport, dateRange, customDateRange.startDate, customDateRange.endDate]);
+  }, [activeReport, dateRange, customDateRange.startDate, customDateRange.endDate, isCashier]);
 
   const handleDateRangeChange = useCallback((value) => {
     setDateRange(value);
@@ -401,7 +425,7 @@ const SalesReports = () => {
                   fill="#8884d8"
                   dataKey="revenue"
                 >
-                  {data.categorySales.map((entry, index) => (
+                  {data.categorySales?.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
@@ -544,8 +568,13 @@ const SalesReports = () => {
       <p className="text-gray-500 mb-4">
         There's no sales data to display for the selected period and report type.
       </p>
-      <div className="text-sm text-gray-400">
+      <div className="text-sm text-gray-400 mb-6">
         Try selecting a different period or report type.
+      </div>
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-md mx-auto">
+        <p className="text-blue-800 text-sm">
+          <strong>Tip:</strong> Make sure you have created some orders to see sales data.
+        </p>
       </div>
     </div>
   );
@@ -579,6 +608,20 @@ const SalesReports = () => {
         return renderSalesSummary();
     }
   };
+
+  // Show loading spinner while authentication is being checked
+  if (authLoading) {
+    return (
+      <div className="flex justify-center items-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  // If no user is found, redirect to login
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
 
   return (
     <div className="space-y-6">
