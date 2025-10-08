@@ -53,6 +53,14 @@ async function createBackup() {
     exec(mysqldumpCommand, (error, stdout, stderr) => {
       if (error) {
         console.error('❌ Backup failed:', error.message);
+        console.error('❌ Full error:', error);
+        
+        // Remove empty backup file if it was created
+        if (fs.existsSync(backupFile)) {
+          fs.unlinkSync(backupFile);
+          console.log('🗑️  Removed empty backup file');
+        }
+        
         reject(error);
         return;
       }
@@ -69,8 +77,9 @@ async function createBackup() {
           console.log(`📊 Backup size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
           resolve(backupFile);
         } else {
-          console.error('❌ Backup file is empty');
-          reject(new Error('Backup file is empty'));
+          console.error('❌ Backup file is empty - removing it');
+          fs.unlinkSync(backupFile);
+          reject(new Error('Backup file is empty - database may not exist or be accessible'));
         }
       } else {
         console.error('❌ Backup file was not created');

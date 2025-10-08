@@ -219,13 +219,23 @@ async function setupAutoBackup() {
           console.log('🔄 Running scheduled backup...');
           runAutomatedBackup().catch(error => {
             console.error('❌ Scheduled backup failed:', error);
+            // Don't continue with scheduled backups if initial backup fails
+            console.log('⏹️  Stopping scheduled backups due to failure');
           });
           
-          // Set up recurring backups
+          // Set up recurring backups only if initial backup succeeds
           backupIntervalId = setInterval(() => {
             console.log('🔄 Running scheduled backup...');
             runAutomatedBackup().catch(error => {
               console.error('❌ Scheduled backup failed:', error);
+              // If backup fails 3 times in a row, stop scheduled backups
+              if (!global.backupFailureCount) global.backupFailureCount = 0;
+              global.backupFailureCount++;
+              
+              if (global.backupFailureCount >= 3) {
+                console.log('⏹️  Stopping scheduled backups due to repeated failures');
+                clearInterval(backupIntervalId);
+              }
             });
           }, interval);
         }, 300000); // 5 minute delay to prevent immediate backup spam

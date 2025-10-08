@@ -15,6 +15,7 @@
     "validate:env": "node scripts/validateEnvironment.js",
     "backup": "node scripts/backupDatabase.js",
     "backup:auto": "node scripts/automatedBackup.js",
+    "backup:cleanup": "node scripts/cleanupEmptyBackups.js",
     "restore": "node scripts/restoreDatabase.js",
     "security:check": "npm run validate:env"
   },
