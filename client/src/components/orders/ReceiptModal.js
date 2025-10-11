@@ -5,13 +5,26 @@ import Icon from '../common/Icon';
 
 const ReceiptModal = ({ order, onClose }) => {
   const printRef = useRef();
-  const { settings, formatCurrency } = useSettings();
+  const { settings, formatCurrency, getTaxRate } = useSettings();
   const [isPrinting, setIsPrinting] = useState(false);
   
   // Use business snapshot from order if available, otherwise use current settings
-  const businessSnapshot = order.businessSnapshot || {};
+  let businessSnapshot = order.businessSnapshot || {};
+  if (typeof businessSnapshot === 'string') {
+    try {
+      businessSnapshot = JSON.parse(businessSnapshot);
+    } catch (error) {
+      console.error('Failed to parse business snapshot:', error);
+      businessSnapshot = {};
+    }
+  }
   const currentBusiness = settings.business || {};
   const business = businessSnapshot.restaurantName ? businessSnapshot : currentBusiness;
+  
+  // Get VAT rate from business snapshot
+  const getOrderVATRate = () => {
+    return business.vatRate || business.taxRate || getTaxRate();
+  };
 
   // Optimized memoized calculations
   const receiptData = useMemo(() => {
@@ -337,7 +350,7 @@ const ReceiptModal = ({ order, onClose }) => {
                   justifyContent: 'space-between',
                   marginBottom: '2px'
                 }}>
-                  <span>Sales Tax</span>
+                  <span>VAT ({getOrderVATRate()}%)</span>
                   <span>{formatCurrency(receiptData.tax)}</span>
                 </div>
                 {receiptData.discount > 0 && (
@@ -346,7 +359,7 @@ const ReceiptModal = ({ order, onClose }) => {
                     justifyContent: 'space-between',
                     marginBottom: '2px'
                   }}>
-                    <span>Discount</span>
+                    <span>Discount ({Math.round((parseFloat(receiptData.discount) / (order.orderItems.reduce((sum, item) => sum + parseFloat(item.subtotal), 0))) * 100)}%)</span>
                     <span>-{formatCurrency(receiptData.discount)}</span>
                   </div>
                 )}

@@ -8,12 +8,15 @@ const OperationalReports = React.memo(({ dateRange, customDateRange }) => {
   const [data, setData] = useState({});
   const [loading, setLocalLoading] = useState(false);
 
+  // Operational reports - reorganized by logical grouping
   const reports = [
-    { id: 'table-performance', name: 'Table Performance', icon: '🪑', description: 'Table utilization and efficiency' },
-    { id: 'peak-hours', name: 'Peak Hours Analysis', icon: '⏰', description: 'Busiest times and patterns' },
-    { id: 'service-efficiency', name: 'Service Efficiency', icon: '⚡', description: 'Order processing times' },
-    { id: 'capacity-planning', name: 'Capacity Planning', icon: '📊', description: 'Seating and resource optimization' },
-    { id: 'operational-metrics', name: 'Operational Metrics', icon: '📈', description: 'Key performance indicators' }
+    // Performance Analysis
+    { id: 'table-performance', name: 'Table Performance', icon: '🪑' },
+    { id: 'peak-hours', name: 'Peak Hours Analysis', icon: '⏰' },
+    { id: 'service-efficiency', name: 'Service Efficiency', icon: '⚡' },
+    // Planning & Metrics
+    { id: 'capacity-planning', name: 'Capacity Planning', icon: '📊' },
+    { id: 'operational-metrics', name: 'Operational Metrics', icon: '📈' }
   ];
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#FFC658'];
@@ -80,7 +83,8 @@ const OperationalReports = React.memo(({ dateRange, customDateRange }) => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `${activeReport}-${dateRange}-${new Date().toISOString().split('T')[0]}.${format}`);
+      const fileExtension = format === 'excel' ? 'csv' : format;
+      link.setAttribute('download', `${activeReport}-${dateRange}-${new Date().toISOString().split('T')[0]}.${fileExtension}`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -585,22 +589,19 @@ const OperationalReports = React.memo(({ dateRange, customDateRange }) => {
     <div className="space-y-6">
       {/* Report Type Selection */}
       <div className="bg-white rounded-xl shadow-lg p-6">
-        <div className="flex flex-wrap gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {reports.map((report) => (
             <button
               key={report.id}
               onClick={() => setActiveReport(report.id)}
-              className={`px-6 py-4 rounded-xl text-sm font-medium flex items-center space-x-3 transition-all ${
+              className={`px-4 py-3 rounded-xl text-sm font-medium flex items-center space-x-3 transition-all ${
                 activeReport === report.id
                   ? 'bg-blue-100 text-blue-700 border-2 border-blue-300 shadow-md'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-2 border-transparent'
               }`}
             >
               <span className="text-xl">{report.icon}</span>
-              <div className="text-left">
-                <div className="font-semibold">{report.name}</div>
-                <div className="text-xs opacity-75">{report.description}</div>
-              </div>
+              <div className="font-semibold">{report.name}</div>
             </button>
           ))}
         </div>

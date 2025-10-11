@@ -23,42 +23,39 @@ const Reports = () => {
   // WebSocket connection for real-time updates
   const { socket, isConnected } = useWebSocket();
 
-  // Simplified, restaurant-focused tabs
+  // Simplified, restaurant-focused tabs - reorganized by logical grouping
   const tabs = [
+    // Overview & Sales
     { 
       id: 'overview', 
       name: '📊 Overview', 
-      description: 'Quick summary and key metrics',
       color: 'bg-blue-500'
     },
     { 
       id: 'sales', 
       name: '💰 Sales', 
-      description: 'Revenue, orders, and menu performance',
       color: 'bg-green-500'
     },
+    // Operations
     { 
       id: 'staff', 
       name: '👥 Staff', 
-      description: 'Employee performance and activities',
       color: 'bg-orange-500'
     },
     { 
       id: 'inventory', 
       name: '📦 Inventory', 
-      description: 'Stock levels and inventory management',
       color: 'bg-red-500'
     },
+    // Financial & Analysis
     { 
       id: 'financial', 
       name: '💳 Financial', 
-      description: 'Tax, profit, and end-of-day reports',
       color: 'bg-purple-500'
     },
     { 
       id: 'comparative', 
       name: '📈 Comparative', 
-      description: 'Period-over-period analysis',
       color: 'bg-indigo-500'
     }
   ];
@@ -381,10 +378,7 @@ const Reports = () => {
                 }`}
               >
                 <span className="text-xl">{tab.icon}</span>
-                <div className="text-left">
-                  <div className="font-semibold">{tab.name}</div>
-                  <div className="text-xs opacity-75">{tab.description}</div>
-                </div>
+                <div className="font-semibold">{tab.name}</div>
               </button>
             ))}
           </nav>

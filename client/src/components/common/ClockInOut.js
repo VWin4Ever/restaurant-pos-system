@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
+import axios from 'axios';
 import Icon from './Icon';
+import { useAuth } from '../../contexts/AuthContext';
+import ShiftEndModal from './ShiftEndModal';
+import ShiftWarningModal from './ShiftWarningModal';
 
-const ClockInOut = () => {
+const ClockInOut = ({ compact = false }) => {
+  const { user } = useAuth();
   const [shiftStatus, setShiftStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [clockingIn, setClockingIn] = useState(false);
@@ -10,6 +15,9 @@ const ClockInOut = () => {
   const [notes, setNotes] = useState('');
   const [openingBalance, setOpeningBalance] = useState('');
   const [closingBalance, setClosingBalance] = useState('');
+  const [showShiftEndModal, setShowShiftEndModal] = useState(false);
+  const [showShiftWarning, setShowShiftWarning] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState(0);
 
   useEffect(() => {
     fetchShiftStatus();
@@ -20,17 +28,13 @@ const ClockInOut = () => {
 
   const fetchShiftStatus = async () => {
     try {
-      const response = await fetch('/api/shift-logs/my-status', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setShiftStatus(data.data);
-      } else {
-        console.error('Failed to fetch shift status');
+      const response = await axios.get('/api/shift-logs/my-status');
+      const data = response.data.data;
+      setShiftStatus(data);
+      
+      // Check for shift warning (10 minutes before end)
+      if (data?.shift && data?.isClockedIn) {
+        checkShiftWarning(data.shift);
       }
     } catch (error) {
       console.error('Error fetching shift status:', error);
@@ -39,65 +43,86 @@ const ClockInOut = () => {
     }
   };
 
+  const checkShiftWarning = (shift) => {
+    const now = new Date();
+    const currentTime = now.toTimeString().slice(0, 5); // HH:MM format
+    const shiftEndTime = shift.endTime;
+    
+    // Convert times to minutes for comparison
+    const timeToMinutes = (timeString) => {
+      const [hours, minutes] = timeString.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
+    
+    const currentMinutes = timeToMinutes(currentTime);
+    const endMinutes = timeToMinutes(shiftEndTime);
+    
+    // Calculate time remaining
+    let timeRemainingMinutes = endMinutes - currentMinutes;
+    
+    // Handle overnight shifts
+    if (endMinutes < currentMinutes) {
+      timeRemainingMinutes = (24 * 60) - currentMinutes + endMinutes;
+    }
+    
+    // Show warning if 10 minutes or less remaining
+    if (timeRemainingMinutes <= 10 && timeRemainingMinutes > 0) {
+      setTimeRemaining(timeRemainingMinutes);
+      setShowShiftWarning(true);
+    }
+  };
+
   const handleClockIn = async () => {
     setClockingIn(true);
     try {
-      const response = await fetch('/api/shift-logs/clock-in', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ 
-          notes,
-          openingBalance: openingBalance ? parseFloat(openingBalance) : undefined
-        })
+      const response = await axios.post('/api/shift-logs/clock-in', {
+        notes,
+        openingBalance: openingBalance ? parseFloat(openingBalance) : undefined
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        toast.success(data.message);
-        setNotes('');
-        fetchShiftStatus();
-      } else {
-        const error = await response.json();
-        toast.error(error.message);
-      }
+      toast.success(response.data.message);
+      setNotes('');
+      setOpeningBalance('');
+      fetchShiftStatus();
     } catch (error) {
       console.error('Error clocking in:', error);
-      toast.error('Error clocking in');
+      toast.error(error.response?.data?.message || 'Error clocking in');
     } finally {
       setClockingIn(false);
     }
   };
 
-  const handleClockOut = async () => {
+  const handleClockOut = () => {
+    // Show shift end confirmation modal instead of directly clocking out
+    setShowShiftEndModal(true);
+  };
+
+  const handleConfirmClockOut = async (clockOutData) => {
     setClockingOut(true);
     try {
-      const response = await fetch('/api/shift-logs/clock-out', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ 
-          notes,
-          closingBalance: closingBalance ? parseFloat(closingBalance) : undefined
-        })
+      const response = await axios.post('/api/shift-logs/clock-out', {
+        notes: clockOutData.notes,
+        closingBalance: clockOutData.closingBalance
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        toast.success(data.message);
-        setNotes('');
-        fetchShiftStatus();
-      } else {
-        const error = await response.json();
-        toast.error(error.message);
-      }
+      toast.success(response.data.message);
+      setNotes('');
+      setClosingBalance('');
+      setShowShiftEndModal(false);
+      fetchShiftStatus();
     } catch (error) {
       console.error('Error clocking out:', error);
-      toast.error('Error clocking out');
+      
+      // Handle early clock-out restriction
+      if (error.response?.data?.errorCode === 'EARLY_CLOCK_OUT_RESTRICTED') {
+        const shiftInfo = error.response.data.shiftInfo;
+        toast.error(
+          `Cannot clock out early. Your shift ends at ${shiftInfo.endTime}. Please contact an admin for permission.`,
+          { autoClose: 8000 }
+        );
+      } else {
+        toast.error(error.response?.data?.message || 'Error clocking out');
+      }
     } finally {
       setClockingOut(false);
     }
@@ -110,6 +135,17 @@ const ClockInOut = () => {
       minute: '2-digit',
       hour12: true
     });
+  };
+
+  // Check if clock-out is restricted (before shift ends)
+  const isClockOutRestricted = () => {
+    if (!shiftStatus?.shift || user?.role === 'ADMIN') return false;
+    
+    const now = new Date();
+    const currentTime = now.toTimeString().slice(0, 5); // HH:MM format
+    const shiftEndTime = shiftStatus.shift.endTime;
+    
+    return currentTime < shiftEndTime;
   };
 
   const getCurrentTime = () => {
@@ -128,6 +164,12 @@ const ClockInOut = () => {
     );
   }
 
+  // Admins don't need to see any shift status - they have full access
+  if (user?.role === 'ADMIN') {
+    return null;
+  }
+
+  // Cashiers need shift assignment
   if (!shiftStatus?.hasShift) {
     return (
       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
@@ -142,156 +184,197 @@ const ClockInOut = () => {
     );
   }
 
+  // Ultra-compact version for header
+  if (compact) {
+    // Admins don't need to see any shift status
+    if (user?.role === 'ADMIN') {
+      return null;
+    }
+
+    return (
+      <div className="flex items-center space-x-3 bg-white rounded-lg shadow-sm border border-gray-200 px-3 py-2">
+        <div className="flex items-center space-x-2">
+          <Icon name="clock" size="sm" className="text-gray-400" />
+          <span className="text-sm font-medium text-gray-700">{shiftStatus.shift.name}</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${
+            shiftStatus.isWithinShiftTime 
+              ? 'bg-green-100 text-green-800' 
+              : 'bg-red-100 text-red-800'
+          }`}>
+            {shiftStatus.isWithinShiftTime ? 'Active' : 'Inactive'}
+          </span>
+        </div>
+
+        {shiftStatus.isClockedIn ? (
+          <div className="flex items-center space-x-2">
+            <Icon name="check-circle" size="sm" className="text-green-600" />
+            <span className="text-xs text-green-700">In</span>
+            <button
+              onClick={handleClockOut}
+              disabled={clockingOut || isClockOutRestricted()}
+              className={`px-2 py-1 text-white text-xs rounded disabled:opacity-50 ${
+                isClockOutRestricted() 
+                  ? 'bg-gray-400 cursor-not-allowed' 
+                  : 'bg-red-600 hover:bg-red-700'
+              }`}
+              title={isClockOutRestricted() ? 'Cannot clock out before shift ends' : ''}
+            >
+              {clockingOut ? '...' : 'Out'}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleClockIn}
+            disabled={clockingIn || !shiftStatus.isWithinShiftTime}
+            className={`px-2 py-1 text-xs rounded ${
+              shiftStatus.isWithinShiftTime 
+                ? 'bg-green-600 text-white hover:bg-green-700' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            {clockingIn ? '...' : 'In'}
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">Shift Status</h3>
-        <div className="text-sm text-gray-500">
-          Current Time: {getCurrentTime()}
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+      {/* Compact Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center space-x-2">
+          <Icon name="clock" size="sm" className="text-gray-400" />
+          <span className="text-sm font-medium text-gray-700">{shiftStatus.shift.name}</span>
+          <span className="text-xs text-gray-500">
+            {shiftStatus.shift.startTime} - {shiftStatus.shift.endTime}
+          </span>
+        </div>
+        <div className="text-xs text-gray-500">
+          {getCurrentTime()}
         </div>
       </div>
 
-      {/* Shift Information */}
-      <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-        <div className="flex items-center space-x-3 mb-2">
-          <Icon name="clock" size="sm" className="text-gray-400" />
-          <div>
-            <h4 className="font-medium text-gray-900">{shiftStatus.shift.name}</h4>
-            <p className="text-sm text-gray-600">
-              {shiftStatus.shift.startTime} - {shiftStatus.shift.endTime}
-            </p>
-          </div>
-        </div>
-        
-        <div className="flex items-center space-x-4 text-sm">
+      {/* Status and Action */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3">
           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
             shiftStatus.isWithinShiftTime 
               ? 'bg-green-100 text-green-800' 
               : 'bg-red-100 text-red-800'
           }`}>
-            {shiftStatus.isWithinShiftTime ? 'Within Shift Time' : 'Outside Shift Time'}
+            {shiftStatus.isWithinShiftTime ? 'Within Time' : 'Outside Time'}
           </span>
-          <span className="text-gray-500">
-            Grace Period: {shiftStatus.shift.gracePeriod} minutes
-          </span>
-        </div>
-      </div>
-
-      {/* Clock In/Out Status */}
-      <div className="mb-6">
-        {shiftStatus.isClockedIn ? (
-          <div className="flex items-center justify-between p-4 bg-green-50 border border-green-200 rounded-lg">
-            <div className="flex items-center space-x-3">
+          
+          {shiftStatus.isClockedIn ? (
+            <div className="flex items-center space-x-2">
               <Icon name="check-circle" size="sm" className="text-green-600" />
-              <div>
-                <h4 className="font-medium text-green-800">Clocked In</h4>
-                <p className="text-sm text-green-700">
-                  Since: {formatTime(shiftStatus.clockInTime)}
-                </p>
-              </div>
+              <span className="text-sm text-green-700">
+                In since {formatTime(shiftStatus.clockInTime)}
+              </span>
             </div>
-            <button
-              onClick={handleClockOut}
-              disabled={clockingOut}
-              className="btn-danger flex items-center space-x-2"
-            >
-              {clockingOut ? (
-                <div className="loading-spinner w-4 h-4"></div>
-              ) : (
-                <Icon name="logout" size="sm" />
-              )}
-              <span>Clock Out</span>
-            </button>
-          </div>
+          ) : (
+            <span className="text-sm text-gray-600">
+              {shiftStatus.isWithinShiftTime ? 'Ready to clock in' : 'Wait for shift time'}
+            </span>
+          )}
+        </div>
+
+        {/* Compact Action Button */}
+        {shiftStatus.isClockedIn ? (
+          <button
+            onClick={handleClockOut}
+            disabled={clockingOut || isClockOutRestricted()}
+            className={`px-3 py-1.5 text-white text-sm rounded-md disabled:opacity-50 flex items-center space-x-1 ${
+              isClockOutRestricted() 
+                ? 'bg-gray-400 cursor-not-allowed' 
+                : 'bg-red-600 hover:bg-red-700'
+            }`}
+            title={isClockOutRestricted() ? 'Cannot clock out before shift ends' : ''}
+          >
+            {clockingOut ? (
+              <div className="loading-spinner w-3 h-3"></div>
+            ) : (
+              <Icon name="logout" size="sm" />
+            )}
+            <span>Out</span>
+          </button>
         ) : (
-          <div className="flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-center space-x-3">
-              <Icon name="clock" size="sm" className="text-blue-600" />
-              <div>
-                <h4 className="font-medium text-blue-800">Ready to Clock In</h4>
-                <p className="text-sm text-blue-700">
-                  {shiftStatus.isWithinShiftTime 
-                    ? 'You can clock in now' 
-                    : 'Wait for your shift time to clock in'
-                  }
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={handleClockIn}
-              disabled={clockingIn || !shiftStatus.isWithinShiftTime}
-              className={`flex items-center space-x-2 ${
-                shiftStatus.isWithinShiftTime 
-                  ? 'btn-primary' 
-                  : 'btn-secondary cursor-not-allowed'
-              }`}
-            >
-              {clockingIn ? (
-                <div className="loading-spinner w-4 h-4"></div>
-              ) : (
-                <Icon name="login" size="sm" />
-              )}
-              <span>Clock In</span>
-            </button>
-          </div>
+          <button
+            onClick={handleClockIn}
+            disabled={clockingIn || !shiftStatus.isWithinShiftTime}
+            className={`px-3 py-1.5 text-sm rounded-md flex items-center space-x-1 ${
+              shiftStatus.isWithinShiftTime 
+                ? 'bg-green-600 text-white hover:bg-green-700' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            {clockingIn ? (
+              <div className="loading-spinner w-3 h-3"></div>
+            ) : (
+              <Icon name="login" size="sm" />
+            )}
+            <span>In</span>
+          </button>
         )}
       </div>
 
-      {/* Cash Balance Input */}
+      {/* Optional Cash Balance - Only show when needed */}
       {!shiftStatus.isClockedIn && (
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Opening Cash Balance (Optional)
-          </label>
+        <div className="mt-3">
           <input
             type="number"
             step="0.01"
             min="0"
             value={openingBalance}
             onChange={(e) => setOpeningBalance(e.target.value)}
-            className="input"
-            placeholder="Enter opening cash amount..."
+            className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-green-500 focus:border-green-500"
+            placeholder="Opening cash (optional)..."
           />
         </div>
       )}
 
       {shiftStatus.isClockedIn && (
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Closing Cash Balance (Optional)
-          </label>
+        <div className="mt-3">
           <input
             type="number"
             step="0.01"
             min="0"
             value={closingBalance}
             onChange={(e) => setClosingBalance(e.target.value)}
-            className="input"
-            placeholder="Enter closing cash amount..."
+            className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-green-500 focus:border-green-500"
+            placeholder="Closing cash (optional)..."
           />
         </div>
       )}
 
-      {/* Notes Input */}
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Notes (Optional)
-        </label>
-        <textarea
+      {/* Compact Notes */}
+      <div className="mt-2">
+        <input
+          type="text"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          className="input"
-          rows="2"
-          placeholder="Add any notes about your shift..."
+          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-green-500 focus:border-green-500"
+          placeholder="Notes (optional)..."
         />
       </div>
 
-      {/* Additional Info */}
-      <div className="text-xs text-gray-500 space-y-1">
-        <p>• You can clock in {shiftStatus.shift.gracePeriod} minutes before your shift starts</p>
-        <p>• You can clock out {shiftStatus.shift.gracePeriod} minutes after your shift ends</p>
-        <p>• Make sure to clock out when your shift ends</p>
-      </div>
+      {/* Shift End Confirmation Modal */}
+      <ShiftEndModal
+        isOpen={showShiftEndModal}
+        onClose={() => setShowShiftEndModal(false)}
+        onConfirm={handleConfirmClockOut}
+        shiftInfo={shiftStatus?.shift}
+        userId={user?.id}
+      />
+
+      {/* Shift Warning Modal */}
+      <ShiftWarningModal
+        isOpen={showShiftWarning}
+        onClose={() => setShowShiftWarning(false)}
+        timeRemaining={timeRemaining}
+        shiftInfo={shiftStatus?.shift}
+      />
     </div>
   );
 };

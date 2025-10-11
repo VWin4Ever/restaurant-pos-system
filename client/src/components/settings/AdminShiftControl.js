@@ -1,64 +1,59 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'react-toastify';
+import axios from 'axios';
 import Icon from '../common/Icon';
+import LoadingSpinner from '../common/LoadingSpinner';
 
 const AdminShiftControl = () => {
   const [activeShifts, setActiveShifts] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [modalType, setModalType] = useState('');
   const [selectedUser, setSelectedUser] = useState(null);
   const [formData, setFormData] = useState({
     userId: '',
-    shiftId: '',
     duration: '',
     reason: '',
     notes: ''
   });
+  const intervalRef = useRef(null);
 
   useEffect(() => {
     fetchData();
     // Refresh every 2 minutes (reduced from 30 seconds)
-    const interval = setInterval(fetchData, 120000);
-    return () => clearInterval(interval);
+    intervalRef.current = setInterval(fetchData, 120000);
+    
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
   }, []);
 
   const fetchData = async () => {
     try {
+      setLoading(true);
       const [activeResponse, shiftsResponse, usersResponse] = await Promise.all([
-        fetch('/api/shifts/active/status', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        }),
-        fetch('/api/shifts', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        }),
-        fetch('/api/users', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        })
+        axios.get('/api/shifts/active/status'),
+        axios.get('/api/shifts'),
+        axios.get('/api/users')
       ]);
-
-      if (activeResponse.ok && shiftsResponse.ok && usersResponse.ok) {
-        const activeData = await activeResponse.json();
-        const shiftsData = await shiftsResponse.json();
-        const usersData = await usersResponse.json();
-        
-        setActiveShifts(activeData.data);
-        setShifts(shiftsData.data);
-        setUsers(usersData.data);
-      } else {
-        toast.error('Failed to fetch data');
-      }
+      
+      setActiveShifts(activeResponse.data.data);
+      setShifts(shiftsResponse.data.data);
+      setUsers(usersResponse.data.data);
     } catch (error) {
       console.error('Error fetching data:', error);
-      toast.error('Error fetching data');
+      const errorMessage = error.response?.status === 403 
+        ? 'You do not have permission to view this data'
+        : error.response?.status >= 500
+        ? 'Server error. Please try again later.'
+        : 'Failed to fetch data. Please check your connection.';
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -69,7 +64,6 @@ const AdminShiftControl = () => {
     setSelectedUser(user);
     setFormData({
       userId: user?.id || '',
-      shiftId: user?.shift?.id || '',
       duration: '',
       reason: '',
       notes: ''
@@ -83,7 +77,6 @@ const AdminShiftControl = () => {
     setSelectedUser(null);
     setFormData({
       userId: '',
-      shiftId: '',
       duration: '',
       reason: '',
       notes: ''
@@ -100,28 +93,20 @@ const AdminShiftControl = () => {
 
       const actionMap = {
         'extend': 'EXTEND',
-        'change': 'REASSIGN',
         'force-logout': 'FORCE_LOGOUT'
       };
 
       const action = actionMap[actionType];
       if (!action) return;
 
-      await fetch('/api/shift-logs/override', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          shiftId: shift.id,
-          userId: parseInt(formData.userId),
-          action,
-          reason: formData.reason || 'Admin override action',
-          oldValue: actionType === 'change' ? user.shift?.name : null,
-          newValue: actionType === 'change' ? shifts.find(s => s.id === parseInt(formData.shiftId))?.name : null,
-          notes: formData.notes
-        })
+      await axios.post('/api/shift-logs/override', {
+        shiftId: shift.id,
+        userId: parseInt(formData.userId),
+        action,
+        reason: formData.reason || 'Admin override action',
+        oldValue: null,
+        newValue: null,
+        notes: formData.notes
       });
     } catch (error) {
       console.error('Error logging override action:', error);
@@ -130,6 +115,21 @@ const AdminShiftControl = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Client-side validation
+    if (!formData.reason.trim()) {
+      toast.error('Reason is required');
+      return;
+    }
+    
+    if (modalType === 'extend' && (!formData.duration || parseInt(formData.duration) <= 0)) {
+      toast.error('Valid duration is required for shift extension');
+      return;
+    }
+    
+    // Change shift validation removed
+    
+    setActionLoading(true);
     
     try {
       let response;
@@ -140,62 +140,40 @@ const AdminShiftControl = () => {
 
       switch (modalType) {
         case 'extend':
-          response = await fetch(`/api/shift-logs/extend/${formData.userId}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({
-              duration: parseInt(formData.duration),
-              notes: payload.notes
-            })
+          response = await axios.post(`/api/shift-logs/extend/${formData.userId}`, {
+            duration: parseInt(formData.duration),
+            notes: payload.notes
           });
           break;
-        case 'change':
-          response = await fetch(`/api/shifts/${formData.shiftId}/assign`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({
-              userId: formData.userId
-            })
-          });
-          break;
+        // Change shift functionality removed
         case 'force-logout':
-          response = await fetch(`/api/shift-logs/force-logout/${formData.userId}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({
-              notes: payload.notes
-            })
+          response = await axios.post(`/api/shift-logs/force-logout/${formData.userId}`, {
+            notes: payload.notes
           });
           break;
         default:
           return;
       }
 
-      if (response.ok) {
-        const data = await response.json();
-        toast.success(data.message);
-        
-        // Log the override action
-        await logOverrideAction(modalType, formData);
-        
-        handleCloseModal();
-        fetchData();
-      } else {
-        const error = await response.json();
-        toast.error(error.message);
-      }
+      toast.success(response.data.message);
+      
+      // Log the override action
+      await logOverrideAction(modalType, formData);
+      
+      handleCloseModal();
+      fetchData();
     } catch (error) {
       console.error('Error performing admin action:', error);
-      toast.error('Error performing action');
+      const errorMessage = error.response?.status === 400
+        ? error.response?.data?.message || 'Invalid action data'
+        : error.response?.status === 403
+        ? 'You do not have permission to perform this action'
+        : error.response?.status === 404
+        ? 'User or shift not found'
+        : error.response?.data?.message || 'Failed to perform action. Please try again.';
+      toast.error(errorMessage);
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -219,11 +197,7 @@ const AdminShiftControl = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="loading-spinner"></div>
-      </div>
-    );
+    return <LoadingSpinner />;
   }
 
   return (
@@ -313,13 +287,6 @@ const AdminShiftControl = () => {
                           <Icon name="clock" size="sm" />
                         </button>
                         <button
-                          onClick={() => handleOpenModal('change', shiftLog.user)}
-                          className="text-green-600 hover:text-green-900 p-1 rounded"
-                          title="Change shift"
-                        >
-                          <Icon name="edit" size="sm" />
-                        </button>
-                        <button
                           onClick={() => handleOpenModal('force-logout', shiftLog.user)}
                           className="text-red-600 hover:text-red-900 p-1 rounded"
                           title="Force logout"
@@ -337,7 +304,7 @@ const AdminShiftControl = () => {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
           <div className="flex items-center space-x-3 mb-4">
             <Icon name="clock" size="lg" className="text-blue-600" />
@@ -354,21 +321,6 @@ const AdminShiftControl = () => {
           </button>
         </div>
 
-        <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-          <div className="flex items-center space-x-3 mb-4">
-            <Icon name="edit" size="lg" className="text-green-600" />
-            <h3 className="text-lg font-semibold text-gray-900">Change Shift</h3>
-          </div>
-          <p className="text-sm text-gray-600 mb-4">
-            Temporarily assign a different shift to a staff member
-          </p>
-          <button
-            onClick={() => handleOpenModal('change')}
-            className="btn-primary w-full"
-          >
-            Change Shift
-          </button>
-        </div>
 
         <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
           <div className="flex items-center space-x-3 mb-4">
@@ -394,7 +346,6 @@ const AdminShiftControl = () => {
             <div className="flex justify-between items-center p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">
                 {modalType === 'extend' && 'Extend Shift'}
-                {modalType === 'change' && 'Change Shift'}
                 {modalType === 'force-logout' && 'Force Logout'}
               </h3>
               <button
@@ -445,26 +396,7 @@ const AdminShiftControl = () => {
                 </div>
               )}
 
-              {modalType === 'change' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    New Shift
-                  </label>
-                  <select
-                    value={formData.shiftId}
-                    onChange={(e) => setFormData({ ...formData, shiftId: e.target.value })}
-                    className="input"
-                    required
-                  >
-                    <option value="">Choose new shift...</option>
-                    {shifts.filter(shift => shift.isActive).map((shift) => (
-                      <option key={shift.id} value={shift.id}>
-                        {shift.name} ({shift.startTime} - {shift.endTime})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              {/* Change shift form removed */}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -503,13 +435,22 @@ const AdminShiftControl = () => {
                 </button>
                 <button
                   type="submit"
+                  disabled={actionLoading}
                   className={`${
                     modalType === 'force-logout' ? 'btn-danger' : 'btn-primary'
-                  }`}
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
-                  {modalType === 'extend' && 'Extend Shift'}
-                  {modalType === 'change' && 'Change Shift'}
-                  {modalType === 'force-logout' && 'Force Logout'}
+                  {actionLoading ? (
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>Processing...</span>
+                    </div>
+                  ) : (
+                    <>
+                      {modalType === 'extend' && 'Extend Shift'}
+                      {modalType === 'force-logout' && 'Force Logout'}
+                    </>
+                  )}
                 </button>
               </div>
             </form>

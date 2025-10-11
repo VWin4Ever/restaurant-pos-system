@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const prisma = require('../utils/database');
-const { requirePermission, getUserPermissions, getAvailablePermissions } = require('../middleware/permissions');
+const { requirePermission, getUserPermissions, getAvailablePermissions, clearUserCache } = require('../middleware/permissions');
 
 const router = express.Router();
 
@@ -374,6 +374,11 @@ router.put('/:id', requirePermission('users.update'), [
       return user;
     });
 
+    // Clear permission cache for this user if permissions were updated
+    if (permissions !== undefined) {
+      clearUserCache(userId);
+    }
+
     res.json({
       success: true,
       message: 'User updated successfully',
@@ -434,6 +439,9 @@ router.patch('/:id/permissions', requirePermission('users.update'), [
         });
       }
     });
+
+    // Clear permission cache for this user
+    clearUserCache(userId);
 
     res.json({
       success: true,
@@ -603,6 +611,43 @@ router.get('/export', requirePermission('users.view'), async (req, res) => {
   } catch (error) {
     console.error('Error exporting users:', error);
     res.status(500).json({ success: false, message: 'Failed to export users' });
+  }
+});
+
+// Get simple list of cashiers for filtering (Admin only)
+router.get('/cashiers/list', async (req, res) => {
+  try {
+    const cashiers = await prisma.user.findMany({
+      where: {
+        role: 'CASHIER',
+        isActive: true
+      },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        shiftId: true,
+        shift: {
+          select: {
+            name: true
+          }
+        }
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    });
+
+    res.json({
+      success: true,
+      data: cashiers
+    });
+  } catch (error) {
+    console.error('Error fetching cashiers list:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch cashiers list'
+    });
   }
 });
 

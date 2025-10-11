@@ -81,7 +81,8 @@ const SummaryReports = React.memo(({ dateRange, customDateRange }) => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `${activeReport}-${dateRange}-${new Date().toISOString().split('T')[0]}.${format}`);
+      const fileExtension = format === 'excel' ? 'csv' : format;
+      link.setAttribute('download', `${activeReport}-${dateRange}-${new Date().toISOString().split('T')[0]}.${fileExtension}`);
       document.body.appendChild(link);
       link.click();
       link.remove();

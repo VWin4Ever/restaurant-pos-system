@@ -16,7 +16,7 @@ const schema = yup.object({
 }).required();
 
 const CreateOrder = ({ onClose, onOrderCreated }) => {
-  const { calculateTax } = useSettings();
+  const { calculateTax, getTaxRate } = useSettings();
   // Removed unused useAuth destructuring
   const [tables, setTables] = useState([]);
   const [products, setProducts] = useState([]);
@@ -46,7 +46,11 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
   };
 
   const calculateDiscount = () => {
-    return (calculateSubtotal() * discountPercent) / 100;
+    const subtotal = calculateSubtotal();
+    const discount = (subtotal * discountPercent) / 100;
+    // Round to 2 decimal places for currency
+    const roundedDiscount = Math.round(discount * 100) / 100;
+    return roundedDiscount;
   };
 
   const calculateTotal = () => {
@@ -70,7 +74,8 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
   }, []);
 
   useEffect(() => {
-    setDiscountPercent(parseFloat(watchedDiscount) || 0);
+    const integerDiscount = parseInt(watchedDiscount) || 0;
+    setDiscountPercent(integerDiscount);
   }, [watchedDiscount]);
 
   useEffect(() => {
@@ -156,7 +161,7 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
       const orderData = {
         tableId: data.tableId ? parseInt(data.tableId, 10) : undefined,
         customerNote: data.customerNote,
-        discount: calculateDiscount(),
+        discount: Math.round(calculateDiscount() * 100) / 100,
         items: orderItems.map(item => ({
           productId: item.productId,
           quantity: item.quantity
@@ -536,7 +541,7 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
                     <span className="font-medium text-text-primary">${calculateSubtotal().toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-text-secondary">Tax</span>
+                    <span className="text-text-secondary">VAT ({getTaxRate()}%)</span>
                     <span className="font-medium text-text-primary">${calculateTaxAmount().toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -546,9 +551,20 @@ const CreateOrder = ({ onClose, onOrderCreated }) => {
                         {...register('discount')}
                         min="0"
                         max="100"
+                        step="1"
                         autoFocus
                         onBlur={() => setEditingDiscount(false)}
-                        onKeyDown={e => { if (e.key === 'Enter') setEditingDiscount(false); }}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value) || 0;
+                          setValue('discount', value);
+                        }}
+                        onKeyDown={(e) => {
+                          // Prevent decimal point and other non-integer characters
+                          if (e.key === '.' || e.key === ',' || e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '-') {
+                            e.preventDefault();
+                          }
+                          if (e.key === 'Enter') setEditingDiscount(false);
+                        }}
                         className="w-16 px-2 py-1 border border-neutral-200 rounded text-center focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-600 transition-all duration-200"
                         placeholder="0"
                         disabled={submitting}

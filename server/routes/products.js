@@ -81,7 +81,7 @@ const upload = multer({
 });
 
 // Get all products (no pagination for local filtering)
-router.get('/', requirePermission('products.view'), async (req, res) => {
+router.get('/', requirePermission('products.read'), async (req, res) => {
   try {
     // Fetch all products for local filtering with orderItems count
     const products = await prisma.product.findMany({
@@ -112,7 +112,7 @@ router.get('/', requirePermission('products.view'), async (req, res) => {
 });
 
 // Get product statistics
-router.get('/stats', requirePermission('products.view'), async (req, res) => {
+router.get('/stats', requirePermission('products.read'), async (req, res) => {
   try {
     const [total, active, inactive, needStock, noStock] = await Promise.all([
       prisma.product.count(),
@@ -139,7 +139,7 @@ router.get('/stats', requirePermission('products.view'), async (req, res) => {
 });
 
 // Get product by ID
-router.get('/:id', requirePermission('products.view'), async (req, res) => {
+router.get('/:id', requirePermission('products.read'), async (req, res) => {
   try {
     const product = await prisma.product.findUnique({
       where: { id: parseInt(req.params.id) },
@@ -283,7 +283,7 @@ router.post('/', requirePermission('products.create'), upload.single('image'), a
 });
 
 // Toggle product active status
-router.patch('/:id', requirePermission('products.edit'), [
+router.patch('/:id', requirePermission('products.update'), [
   body('isActive').isBoolean().withMessage('isActive must be a boolean')
 ], async (req, res) => {
   try {
@@ -334,7 +334,7 @@ router.patch('/:id', requirePermission('products.edit'), [
 });
 
 // Update product
-router.put('/:id', requirePermission('products.edit'), upload.single('image'), [
+router.put('/:id', requirePermission('products.update'), upload.single('image'), [
   body('name').notEmpty().withMessage('Product name is required'),
   body('price').isFloat({ min: 0 }).withMessage('Price must be a positive number'),
   body('categoryId').notEmpty().withMessage('Category ID is required'),
@@ -525,7 +525,7 @@ router.delete('/:id', requirePermission('products.delete'), async (req, res) => 
 });
 
 // Export products to CSV
-router.get('/export/csv', requirePermission('products.export'), async (req, res) => {
+router.get('/export/csv', requirePermission('products.read'), async (req, res) => {
   try {
     const { categoryId, needStock, status } = req.query;
     
@@ -581,7 +581,7 @@ router.get('/export/csv', requirePermission('products.export'), async (req, res)
 });
 
 // Import products from CSV
-router.post('/import/csv', requirePermission('products.import'), async (req, res) => {
+router.post('/import/csv', requirePermission('products.create'), async (req, res) => {
   try {
     const { products } = req.body;
     

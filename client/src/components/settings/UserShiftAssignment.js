@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
+import axios from 'axios';
 import Icon from '../common/Icon';
+import LoadingSpinner from '../common/LoadingSpinner';
+import ConfirmDialog from '../common/ConfirmDialog';
 
 const UserShiftAssignment = () => {
   const [users, setUsers] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState({ open: false });
 
   useEffect(() => {
     fetchData();
@@ -13,95 +18,86 @@ const UserShiftAssignment = () => {
 
   const fetchData = async () => {
     try {
+      setLoading(true);
       const [usersResponse, shiftsResponse] = await Promise.all([
-        fetch('/api/users', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        }),
-        fetch('/api/shifts', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        })
+        axios.get('/api/users'),
+        axios.get('/api/shifts')
       ]);
-
-      if (usersResponse.ok && shiftsResponse.ok) {
-        const usersData = await usersResponse.json();
-        const shiftsData = await shiftsResponse.json();
-        
-        // Only show cashiers in shift assignment
-        setUsers(usersData.data.filter(user => user.role === 'CASHIER'));
-        setShifts(shiftsData.data);
-      } else {
-        toast.error('Failed to fetch data');
-      }
+      
+      // Only show cashiers in shift assignment
+      setUsers(usersResponse.data.data.filter(user => user.role === 'CASHIER'));
+      setShifts(shiftsResponse.data.data);
     } catch (error) {
       console.error('Error fetching data:', error);
-      toast.error('Error fetching data');
+      const errorMessage = error.response?.status === 403 
+        ? 'You do not have permission to view this data'
+        : error.response?.status >= 500
+        ? 'Server error. Please try again later.'
+        : 'Failed to fetch data. Please check your connection.';
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
   const handleShiftAssignment = async (userId, shiftId) => {
+    setActionLoading(true);
     try {
-      const response = await fetch(`/api/shifts/${shiftId}/assign`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ userId })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        toast.success(data.message);
-        fetchData(); // Refresh data
-      } else {
-        const error = await response.json();
-        toast.error(error.message);
-      }
+      const response = await axios.post(`/api/shifts/${shiftId}/assign`, { userId });
+      toast.success(response.data.message);
+      fetchData(); // Refresh data
     } catch (error) {
       console.error('Error assigning shift:', error);
-      toast.error('Error assigning shift');
+      const errorMessage = error.response?.status === 400
+        ? error.response?.data?.message || 'Invalid assignment data'
+        : error.response?.status === 403
+        ? 'You do not have permission to assign shifts'
+        : error.response?.status === 404
+        ? 'Shift or user not found'
+        : 'Failed to assign shift. Please try again.';
+      toast.error(errorMessage);
+    } finally {
+      setActionLoading(false);
     }
   };
 
   const handleRemoveShift = async (userId, shiftId) => {
-    if (!window.confirm('Are you sure you want to remove this user from their shift?')) {
-      return;
-    }
-
+    setActionLoading(true);
     try {
-      const response = await fetch(`/api/shifts/${shiftId}/assign/${userId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        toast.success(data.message);
-        fetchData(); // Refresh data
-      } else {
-        const error = await response.json();
-        toast.error(error.message);
-      }
+      const response = await axios.delete(`/api/shifts/${shiftId}/assign/${userId}`);
+      toast.success(response.data.message);
+      fetchData(); // Refresh data
     } catch (error) {
       console.error('Error removing shift:', error);
-      toast.error('Error removing shift');
+      const errorMessage = error.response?.status === 400
+        ? error.response?.data?.message || 'User is not assigned to this shift'
+        : error.response?.status === 403
+        ? 'You do not have permission to remove shift assignments'
+        : error.response?.status === 404
+        ? 'Shift or user not found'
+        : 'Failed to remove shift assignment. Please try again.';
+      toast.error(errorMessage);
+    } finally {
+      setActionLoading(false);
     }
   };
 
+  const handleRemoveShiftAssignment = (user) => {
+    setConfirmDialog({
+      open: true,
+      title: 'Remove Shift Assignment',
+      message: `Are you sure you want to remove ${user.name} from their current shift "${user.shift.name}"?`,
+      confirmText: 'Remove',
+      cancelText: 'Cancel',
+      icon: 'delete',
+      type: 'warning',
+      userId: user.id,
+      shiftId: user.shift.id
+    });
+  };
+
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="loading-spinner"></div>
-      </div>
-    );
+    return <LoadingSpinner />;
   }
 
   return (
@@ -182,8 +178,9 @@ const UserShiftAssignment = () => {
                     <div className="flex items-center space-x-2">
                       {user.shift ? (
                         <button
-                          onClick={() => handleRemoveShift(user.id, user.shift.id)}
-                          className="text-red-600 hover:text-red-900 p-1 rounded"
+                          onClick={() => handleRemoveShiftAssignment(user)}
+                          disabled={actionLoading}
+                          className="text-red-600 hover:text-red-900 p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
                           title="Remove from shift"
                         >
                           <Icon name="delete" size="sm" />
@@ -195,7 +192,8 @@ const UserShiftAssignment = () => {
                               handleShiftAssignment(user.id, e.target.value);
                             }
                           }}
-                          className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          disabled={actionLoading}
+                          className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
                           defaultValue=""
                         >
                           <option value="">Assign Shift</option>
@@ -284,6 +282,22 @@ const UserShiftAssignment = () => {
           );
         })}
       </div>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText={confirmDialog.confirmText}
+        cancelText={confirmDialog.cancelText}
+        icon={confirmDialog.icon}
+        type={confirmDialog.type}
+        onConfirm={() => {
+          handleRemoveShift(confirmDialog.userId, confirmDialog.shiftId);
+          setConfirmDialog({ open: false });
+        }}
+        onCancel={() => setConfirmDialog({ open: false })}
+      />
     </div>
   );
 };

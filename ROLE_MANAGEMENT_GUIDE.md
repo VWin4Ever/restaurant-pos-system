@@ -143,12 +143,12 @@ const ROLE_PERMISSIONS = {
     'orders.create',
     'orders.read',
     'orders.update',
-    'products.view',
-    'categories.view',
+    'products.read',
+    'categories.read',
     'tables.read',
     'tables.update',
     'stock.read',
-    'reports.view'
+    'reports.read'
   ]
 };
 ```
@@ -291,6 +291,12 @@ Dashboard
 ---
 
 *This two-role system provides a secure, efficient, and easy-to-manage restaurant POS solution with clear separation of responsibilities.*
+
+
+
+
+
+
 
 
 

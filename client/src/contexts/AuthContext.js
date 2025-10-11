@@ -45,14 +45,12 @@ export const AuthProvider = ({ children }) => {
               'orders.create',
               'orders.read', 
               'orders.update',
-              'products.view',
-              'categories.view',
+              'products.read',
+              'categories.read',
               'tables.read',
               'tables.update',
               'stock.read',
-              'stock.update',
-              'reports.view',
-              'settings.view'
+              'reports.read'
             ]);
           } else if (userData.role === 'ADMIN') {
             // Admins have all permissions
@@ -153,14 +151,12 @@ export const AuthProvider = ({ children }) => {
       'orders.create',
       'orders.read',
       'orders.update',
-      'products.view',
-      'categories.view',
+      'products.read',
+      'categories.read',
       'tables.read',
       'tables.update',
       'stock.read',
-      'stock.update',
-      'reports.view',
-      'settings.view'
+      'reports.read'
     ]
   };
 

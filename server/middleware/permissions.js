@@ -20,14 +20,12 @@ const ROLE_PERMISSIONS = {
     'orders.create',
     'orders.read',
     'orders.update',
-    'products.view',
-    'categories.view',
+    'products.read',
+    'categories.read',
     'tables.read',
     'tables.update',
     'stock.read',
-    'stock.update',
-    'reports.view',
-    'settings.view'
+    'reports.read'
   ]
 };
 
@@ -49,6 +47,16 @@ const setCachedPermissions = (userId, permissions) => {
 
 const clearUserCache = (userId) => {
   permissionCache.delete(userId);
+};
+
+// Clear cache for multiple users (useful for role changes)
+const clearMultipleUserCache = (userIds) => {
+  userIds.forEach(userId => permissionCache.delete(userId));
+};
+
+// Clear all permission cache (useful for system-wide permission changes)
+const clearAllPermissionCache = () => {
+  permissionCache.clear();
 };
 
 // Check if user has permission (including custom permissions)
@@ -282,6 +290,10 @@ const getAvailablePermissions = () => {
     // Settings
     'settings.read',
     'settings.update',
+    'settings.backup',
+    'settings.restore',
+    'settings.reset',
+    'settings.view',
     'settings.*',
     
     // Users (limited for cashiers)
@@ -309,5 +321,7 @@ module.exports = {
   getAvailablePermissions,
   canPerformAction,
   clearUserCache,
+  clearMultipleUserCache,
+  clearAllPermissionCache,
   ROLE_PERMISSIONS
 }; 

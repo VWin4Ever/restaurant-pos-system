@@ -14,10 +14,11 @@ const InventoryReports = () => {
     endDate: ''
   });
 
-  // Inventory-focused reports
+  // Inventory-focused reports - reorganized by logical grouping
   const reports = [
-    { id: 'stock-levels', name: 'Stock Levels', icon: '📦', description: 'Current inventory levels and alerts' },
-    { id: 'movements', name: 'Movements', icon: '📊', description: 'Stock in/out movements' }
+    // Stock Management
+    { id: 'stock-levels', name: 'Stock Levels', icon: '📦' },
+    { id: 'movements', name: 'Movements', icon: '📊' }
   ];
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#FFC658'];
@@ -84,7 +85,8 @@ const InventoryReports = () => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `inventory-${activeReport}-${dateRange}-${new Date().toISOString().split('T')[0]}.${format}`);
+      const fileExtension = format === 'excel' ? 'csv' : format;
+      link.setAttribute('download', `inventory-${activeReport}-${dateRange}-${new Date().toISOString().split('T')[0]}.${fileExtension}`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -291,7 +293,7 @@ const InventoryReports = () => {
       {/* Movements Chart */}
       {data.movements && (
         <div className="bg-white p-6 rounded-xl shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Stock Movements</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Stock Movements Over Time</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={data.movements}>
               <XAxis dataKey="date" />
@@ -301,6 +303,89 @@ const InventoryReports = () => {
               <Bar dataKey="stockOut" fill="#FF8042" name="Stock Out" />
             </BarChart>
           </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Product Movements Table */}
+      {data.productMovements && data.productMovements.length > 0 && (
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Product Movement Summary</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock In</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock Out</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Adjustments</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transactions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {data.productMovements.map((product, index) => (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {product.productName}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {product.category}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">
+                      +{product.stockIn}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-medium">
+                      -{product.stockOut}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 font-medium">
+                      {product.adjustments > 0 ? '+' : ''}{product.adjustments}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {product.transactions}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Transactions */}
+      {data.recentTransactions && data.recentTransactions.length > 0 && (
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Transactions</h3>
+          <div className="space-y-3">
+            {data.recentTransactions.map((transaction) => (
+              <div key={transaction.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-4">
+                  <div className={`w-3 h-3 rounded-full ${
+                    transaction.type === 'ADD' ? 'bg-green-500' :
+                    transaction.type === 'REMOVE' ? 'bg-red-500' : 'bg-blue-500'
+                  }`}></div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {transaction.productName} - {transaction.action}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {transaction.category} • {transaction.user} • {new Date(transaction.date).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className={`text-sm font-medium ${
+                    transaction.type === 'ADD' ? 'text-green-600' :
+                    transaction.type === 'REMOVE' ? 'text-red-600' : 'text-blue-600'
+                  }`}>
+                    {transaction.type === 'ADD' ? '+' : transaction.type === 'REMOVE' ? '-' : '±'}{transaction.quantity}
+                  </p>
+                  {transaction.note && (
+                    <p className="text-xs text-gray-500">{transaction.note}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -357,22 +442,19 @@ const InventoryReports = () => {
 
       {/* Report Type Selection */}
       <div className="bg-white rounded-xl shadow-lg p-6">
-        <div className="flex flex-wrap gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {reports.map((report) => (
             <button
               key={report.id}
               onClick={() => setActiveReport(report.id)}
-              className={`px-6 py-4 rounded-xl text-sm font-medium flex items-center space-x-3 transition-all ${
+              className={`px-4 py-3 rounded-xl text-sm font-medium flex items-center space-x-3 transition-all ${
                 activeReport === report.id
                   ? 'bg-blue-100 text-blue-700 border-2 border-blue-300 shadow-md'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-2 border-transparent'
               }`}
             >
               <span className="text-xl">{report.icon}</span>
-              <div className="text-left">
-                <div className="font-semibold">{report.name}</div>
-                <div className="text-xs opacity-75">{report.description}</div>
-              </div>
+              <div className="font-semibold">{report.name}</div>
             </button>
           ))}
         </div>

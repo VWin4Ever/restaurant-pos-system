@@ -4,7 +4,6 @@ import { toast } from 'react-toastify';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import LoadingSpinner from '../common/LoadingSpinner';
 import Icon from '../common/Icon';
-import IconTest from '../common/IconTest';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -54,13 +53,13 @@ const Dashboard = () => {
       ] = await Promise.all([
         // Use cashier-specific dashboard for cashiers, general dashboard for admins
         fetchData(isCashier ? '/api/reports/cashier-dashboard' : `/api/reports/dashboard?range=today`, {}),
-        fetchData(`/api/reports/dashboard?range=month`, {}), // Full month sales
+        fetchData(isCashier ? '/api/reports/cashier-dashboard' : `/api/reports/dashboard?range=month`, {}), // Full month sales
         fetchData(isCashier ? '/api/reports/cashier-sales?range=week' : `/api/reports/sales?range=week`, []), // Last 7 days for trend
         // Use cashier-specific endpoints for cashiers
         fetchData(isCashier ? '/api/reports/cashier-top-products?range=today&limit=5' : '/api/reports/top-products?range=today&limit=5', []),
-        fetchData('/api/reports/inventory/low-stock-alert', []),
-        fetchData('/api/reports/sales/peak-hours?range=today', []),
-        fetchData('/api/reports/sales/category-sales?range=today', [])
+        fetchData(isCashier ? [] : '/api/reports/inventory/low-stock-alert', []), // Only admins see stock alerts
+        fetchData(isCashier ? '/api/reports/cashier-peak-hours?range=today' : '/api/reports/sales/peak-hours?range=today', []),
+        fetchData(isCashier ? '/api/reports/cashier-category-sales?range=today' : '/api/reports/sales/category-sales?range=today', [])
       ]);
 
       // Set data
@@ -117,28 +116,30 @@ const Dashboard = () => {
   return (
     <div className="space-y-6 sm:space-y-8">
       {/* Dashboard Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Restaurant Dashboard</h1>
-          <p className="text-gray-600 mt-1">
-            {user?.role === 'CASHIER' 
-              ? `Welcome back, ${user?.name}! Here's your performance today.`
-              : 'Real-time overview of restaurant operations'
-            }
-          </p>
+          <h1 className="text-3xl font-bold text-gray-900">Restaurant Dashboard</h1>
         </div>
-        <button
-          onClick={() => navigate('/orders', { state: { openCreateModal: true } })}
-          className="btn-primary flex items-center gap-2 hover:scale-105 transition-transform"
-        >
-          <Icon name="add" className="w-5 h-5" />
-          <span>Create New Order</span>
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            onClick={() => navigate('/orders', { state: { openCreateModal: true } })}
+            className="btn-primary flex items-center gap-2 hover:scale-105 transition-transform px-6 py-3 text-lg"
+          >
+            <Icon name="add" className="w-5 h-5" />
+            <span>Create New Order</span>
+          </button>
+          <button
+            onClick={() => navigate('/tables')}
+            className="btn-secondary flex items-center gap-2 hover:scale-105 transition-transform px-6 py-3 text-lg"
+          >
+            <Icon name="tables" className="w-5 h-5" />
+            <span>Manage Tables</span>
+          </button>
+        </div>
       </div>
 
+
       {/* Key Metrics Grid - Today's Performance */}
-      {/* Custom Icons Test - Temporary */}
-      <IconTest />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <StatCard 
@@ -171,7 +172,7 @@ const Dashboard = () => {
           color="warning" 
           onClick={() => navigate('/orders')} 
           clickable 
-          subtitle="Awaiting payment"
+          subtitle={user?.role === 'CASHIER' ? "My pending orders" : "Awaiting payment"}
         />
         <StatCard 
           title="Available Tables" 
@@ -256,7 +257,7 @@ const Dashboard = () => {
       </div>
 
       {/* Top Products and Alerts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className={`grid grid-cols-1 ${user?.role === 'ADMIN' ? 'lg:grid-cols-2' : ''} gap-6`}>
         {/* Top Products - Today's Best Sellers */}
         <div className="bg-surface rounded-2xl p-4 sm:p-6 shadow-soft">
           <div className="flex items-center justify-between mb-4">
@@ -302,62 +303,64 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Low Stock Alerts */}
-        <div className="bg-surface rounded-2xl p-4 sm:p-6 shadow-soft">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-bold">Low Stock Alerts</h3>
-            {lowStockAlerts && lowStockAlerts.length > 0 && (
-              <button 
-                className="text-warning text-sm hover:underline flex items-center gap-1"
-                onClick={() => navigate('/stock')}
-              >
-                <span>Manage Stock</span>
-                <Icon name="chevronRight" className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-          <div className="space-y-3">
-            {lowStockAlerts && lowStockAlerts.length > 0 ? (
-              lowStockAlerts.slice(0, 5).map((alert) => (
-                <div 
-                  key={alert.id} 
-                  className={`flex items-center justify-between p-3 rounded-xl cursor-pointer hover:scale-[1.02] transition-all ${
-                    alert.alertLevel === 'Critical' 
-                      ? 'bg-error/10 border border-error/30' 
-                      : 'bg-warning/10 border border-warning/20'
-                  }`}
+        {/* Low Stock Alerts - Admin Only */}
+        {user?.role === 'ADMIN' && (
+          <div className="bg-surface rounded-2xl p-4 sm:p-6 shadow-soft">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold">Low Stock Alerts</h3>
+              {lowStockAlerts && lowStockAlerts.length > 0 && (
+                <button 
+                  className="text-warning text-sm hover:underline flex items-center gap-1"
                   onClick={() => navigate('/stock')}
                 >
-                  <div className="flex items-center space-x-3">
-                    <Icon 
-                      name={alert.alertLevel === 'Critical' ? 'error' : 'warning'} 
-                      className={alert.alertLevel === 'Critical' ? 'text-error' : 'text-warning'} 
-                    />
-                    <div>
-                      <div className="font-medium text-sm">{alert.productName}</div>
+                  <span>Manage Stock</span>
+                  <Icon name="chevronRight" className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            <div className="space-y-3">
+              {lowStockAlerts && lowStockAlerts.length > 0 ? (
+                lowStockAlerts.slice(0, 5).map((alert) => (
+                  <div 
+                    key={alert.id} 
+                    className={`flex items-center justify-between p-3 rounded-xl cursor-pointer hover:scale-[1.02] transition-all ${
+                      alert.alertLevel === 'Critical' 
+                        ? 'bg-error/10 border border-error/30' 
+                        : 'bg-warning/10 border border-warning/20'
+                    }`}
+                    onClick={() => navigate('/stock')}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <Icon 
+                        name={alert.alertLevel === 'Critical' ? 'error' : 'warning'} 
+                        className={alert.alertLevel === 'Critical' ? 'text-error' : 'text-warning'} 
+                      />
+                      <div>
+                        <div className="font-medium text-sm">{alert.productName}</div>
+                        <div className="text-xs text-gray-500">
+                          Current: {alert.currentStock} • Min: {alert.minStock}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className={`text-xs font-bold ${alert.alertLevel === 'Critical' ? 'text-error' : 'text-warning'}`}>
+                        {alert.alertLevel}
+                      </div>
                       <div className="text-xs text-gray-500">
-                        Current: {alert.currentStock} • Min: {alert.minStock}
+                        Need: {alert.deficit}
                       </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className={`text-xs font-bold ${alert.alertLevel === 'Critical' ? 'text-error' : 'text-warning'}`}>
-                      {alert.alertLevel}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      Need: {alert.deficit}
-                    </div>
-                  </div>
+                ))
+              ) : (
+                <div className="text-center text-gray-400 py-8">
+                  <Icon name="check" className="w-8 h-8 mx-auto mb-2 text-success" />
+                  <div className="text-sm">All stock levels are good!</div>
                 </div>
-              ))
-            ) : (
-              <div className="text-center text-gray-400 py-8">
-                <Icon name="check" className="w-8 h-8 mx-auto mb-2 text-success" />
-                <div className="text-sm">All stock levels are good!</div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
     </div>

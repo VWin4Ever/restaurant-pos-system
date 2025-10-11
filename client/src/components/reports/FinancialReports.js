@@ -2,9 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
+import { useSettings } from '../../contexts/SettingsContext';
 import ReportsFilter from './ReportsFilter';
 
 const FinancialReports = () => {
+  const { getTaxRate } = useSettings();
   const [activeReport, setActiveReport] = useState('profit');
   const [data, setData] = useState({});
   const [loading, setLocalLoading] = useState(false);
@@ -13,13 +15,23 @@ const FinancialReports = () => {
     startDate: '',
     endDate: ''
   });
+  const [comparisonType, setComparisonType] = useState('today_vs_yesterday');
+  const [comparisonPeriods, setComparisonPeriods] = useState({
+    period1: {
+      startDate: '',
+      endDate: ''
+    },
+    period2: {
+      startDate: '',
+      endDate: ''
+    }
+  });
 
-  // Financial-focused reports
+  // Financial-focused reports - core financial analysis only
   const reports = [
-    { id: 'profit', name: 'Profit Analysis', icon: '💰', description: 'Revenue, costs, and profit margins' },
-    { id: 'tax', name: 'Tax Report', icon: '📊', description: 'Tax calculations and compliance' },
-    { id: 'payments', name: 'Payment Methods', icon: '💳', description: 'Payment method analysis' },
-    { id: 'end-of-day', name: 'End of Day', icon: '📅', description: 'Daily closing reports' }
+    // Financial Analysis
+    { id: 'profit', name: 'Profit Analysis', icon: '💰' },
+    { id: 'comparative', name: 'Comparative Report', icon: '📈' }
   ];
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#FFC658'];
@@ -30,7 +42,7 @@ const FinancialReports = () => {
     }, 300);
 
     return () => clearTimeout(timeoutId);
-  }, [activeReport, dateRange, customDateRange.startDate, customDateRange.endDate]);
+  }, [activeReport, dateRange, customDateRange.startDate, customDateRange.endDate, comparisonType, comparisonPeriods]);
 
   const fetchReportData = useCallback(async () => {
     const startTime = Date.now();
@@ -46,7 +58,27 @@ const FinancialReports = () => {
         params.append('range', dateRange);
       }
 
-      const response = await axios.get(`/api/reports/financial/${activeReport}?${params}`);
+      let endpoint = `/api/reports/financial/${activeReport}`;
+      
+      // Use different endpoint for comparative report
+      if (activeReport === 'comparative') {
+        endpoint = '/api/reports/comparative/period-analysis';
+        params.append('compareWith', comparisonType);
+        
+        // Add custom period parameters if using custom periods
+        if (comparisonType === 'custom') {
+          if (comparisonPeriods.period1.startDate && comparisonPeriods.period1.endDate) {
+            params.append('period1StartDate', comparisonPeriods.period1.startDate);
+            params.append('period1EndDate', comparisonPeriods.period1.endDate);
+          }
+          if (comparisonPeriods.period2.startDate && comparisonPeriods.period2.endDate) {
+            params.append('period2StartDate', comparisonPeriods.period2.startDate);
+            params.append('period2EndDate', comparisonPeriods.period2.endDate);
+          }
+        }
+      }
+      
+      const response = await axios.get(`${endpoint}?${params}`);
       setData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch report data:', error);
@@ -59,7 +91,7 @@ const FinancialReports = () => {
         setLocalLoading(false);
       }, remainingTime);
     }
-  }, [activeReport, dateRange, customDateRange.startDate, customDateRange.endDate]);
+  }, [activeReport, dateRange, customDateRange.startDate, customDateRange.endDate, comparisonType, comparisonPeriods]);
 
   const exportReport = useCallback(async (format = 'csv') => {
     try {
@@ -86,7 +118,8 @@ const FinancialReports = () => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `financial-${activeReport}-${dateRange}-${new Date().toISOString().split('T')[0]}.${format}`);
+      const fileExtension = format === 'excel' ? 'csv' : format;
+      link.setAttribute('download', `financial-${activeReport}-${dateRange}-${new Date().toISOString().split('T')[0]}.${fileExtension}`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -111,6 +144,20 @@ const FinancialReports = () => {
     setCustomDateRange(prev => ({ ...prev, [field]: value }));
   }, []);
 
+  const handleComparisonTypeChange = useCallback((value) => {
+    setComparisonType(value);
+  }, []);
+
+  const handleComparisonPeriodChange = useCallback((period, field, value) => {
+    setComparisonPeriods(prev => ({
+      ...prev,
+      [period]: {
+        ...prev[period],
+        [field]: value
+      }
+    }));
+  }, []);
+
   const formatCurrency = useCallback((amount) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -128,8 +175,9 @@ const FinancialReports = () => {
               <div>
                 <p className="text-sm opacity-90">Total Revenue</p>
                 <p className="text-3xl font-bold">
-                  {formatCurrency(data.profitSummary.totalRevenue || 0)}
+                  {formatCurrency((data.profitSummary.totalRevenue || 0) * 0.9)}
                 </p>
+                <p className="text-xs opacity-75 mt-1">-VAT (10%)</p>
               </div>
               <div className="text-4xl">💰</div>
             </div>
@@ -152,7 +200,7 @@ const FinancialReports = () => {
               <div>
                 <p className="text-sm opacity-90">Net Profit</p>
                 <p className="text-3xl font-bold">
-                  {formatCurrency(data.profitSummary.netProfit || 0)}
+                  {formatCurrency(((data.profitSummary.totalRevenue || 0) * 0.9) - (data.profitSummary.totalCosts || 0))}
                 </p>
               </div>
               <div className="text-4xl">📈</div>
@@ -164,7 +212,12 @@ const FinancialReports = () => {
               <div>
                 <p className="text-sm opacity-90">Profit Margin</p>
                 <p className="text-3xl font-bold">
-                  {data.profitSummary.profitMargin || 0}%
+                  {(() => {
+                    const adjustedRevenue = (data.profitSummary.totalRevenue || 0) * 0.9;
+                    const costs = data.profitSummary.totalCosts || 0;
+                    const netProfit = adjustedRevenue - costs;
+                    return adjustedRevenue > 0 ? ((netProfit / adjustedRevenue) * 100).toFixed(1) : 0;
+                  })()}%
                 </p>
               </div>
               <div className="text-4xl">📊</div>
@@ -209,28 +262,35 @@ const FinancialReports = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {data.categoryAnalysis.map((category) => (
-                  <tr key={category.category} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {category.category}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                      {formatCurrency(category.revenue)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600">
-                      {formatCurrency(category.cost)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
-                      {formatCurrency(category.profit)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {category.margin.toFixed(1)}%
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {category.quantity}
-                    </td>
-                  </tr>
-                ))}
+                {data.categoryAnalysis.map((category) => {
+                  // Calculate VAT-adjusted values
+                  const adjustedRevenue = category.revenue * 0.9; // Minus 10% VAT
+                  const adjustedProfit = adjustedRevenue - category.cost;
+                  const adjustedMargin = adjustedRevenue > 0 ? (adjustedProfit / adjustedRevenue) * 100 : 0;
+                  
+                  return (
+                    <tr key={category.category} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {category.category}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
+                        {formatCurrency(adjustedRevenue)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600">
+                        {formatCurrency(category.cost)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
+                        {formatCurrency(adjustedProfit)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {adjustedMargin.toFixed(1)}%
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {category.quantity}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -239,105 +299,297 @@ const FinancialReports = () => {
     </div>
   );
 
-  const renderTax = () => (
-    <div className="space-y-6">
-      {/* Tax Summary */}
-      {data.taxSummary && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Total Tax</p>
-                <p className="text-3xl font-bold">
-                  {formatCurrency(data.taxSummary.totalTax || 0)}
-                </p>
-              </div>
-              <div className="text-4xl">📊</div>
-            </div>
-          </div>
 
-          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Taxable Amount</p>
-                <p className="text-3xl font-bold">
-                  {formatCurrency(data.taxSummary.taxableAmount || 0)}
-                </p>
-              </div>
-              <div className="text-4xl">💰</div>
-            </div>
-          </div>
+  const renderComparative = () => {
+    // Calculate metrics for comparison
+    const currentPeriod = data.currentPeriod || {};
+    const comparisonPeriod = data.comparisonPeriod || {};
+    const growthAnalysis = data.growthAnalysis || {};
 
-          <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Tax Rate</p>
-                <p className="text-3xl font-bold">
-                  {data.taxSummary.taxRate || 0}%
-                </p>
-              </div>
-              <div className="text-4xl">📈</div>
-            </div>
-          </div>
-        </div>
-      )}
+    // Use actual cost and profit data from backend, with VAT-adjusted revenue
+    const currentRevenue = (currentPeriod.totalRevenue || 0) * 0.9; // Minus 10% VAT
+    const comparisonRevenue = (comparisonPeriod.totalRevenue || 0) * 0.9; // Minus 10% VAT
+    const currentCost = currentPeriod.totalCost || 0;
+    const comparisonCost = comparisonPeriod.totalCost || 0;
+    const currentProfit = currentRevenue - currentCost;
+    const comparisonProfit = comparisonRevenue - comparisonCost;
+    const currentMargin = currentRevenue > 0 ? (currentProfit / currentRevenue) * 100 : 0;
+    const comparisonMargin = comparisonRevenue > 0 ? (comparisonProfit / comparisonRevenue) * 100 : 0;
 
-      {/* Tax Chart */}
-      {data.taxChart && data.taxChart.length > 0 && (
+    // Calculate changes
+    const revenueChange = currentRevenue - comparisonRevenue;
+    const costChange = currentCost - comparisonCost;
+    const profitChange = currentProfit - comparisonProfit;
+    const marginChange = currentMargin - comparisonMargin;
+
+    // Calculate percentage differences
+    const revenuePercentChange = comparisonRevenue > 0 ? (revenueChange / comparisonRevenue) * 100 : 0;
+    const costPercentChange = comparisonCost > 0 ? (costChange / comparisonCost) * 100 : 0;
+    const profitPercentChange = comparisonProfit > 0 ? (profitChange / comparisonProfit) * 100 : 0;
+
+    const comparisonData = [
+      {
+        metric: 'Total Sales',
+        period1: formatCurrency(comparisonRevenue),
+        period2: formatCurrency(currentRevenue),
+        change: formatCurrency(revenueChange),
+        percentChange: revenuePercentChange
+      },
+      {
+        metric: 'Cost',
+        period1: formatCurrency(comparisonCost),
+        period2: formatCurrency(currentCost),
+        change: formatCurrency(costChange),
+        percentChange: costPercentChange
+      },
+      {
+        metric: 'Net Profit',
+        period1: formatCurrency(comparisonProfit),
+        period2: formatCurrency(currentProfit),
+        change: formatCurrency(profitChange),
+        percentChange: profitPercentChange
+      },
+      {
+        metric: 'Profit Margin',
+        period1: `${comparisonMargin.toFixed(1)}%`,
+        period2: `${currentMargin.toFixed(1)}%`,
+        change: `${marginChange.toFixed(1)}%`,
+        percentChange: '—'
+      }
+    ];
+
+    return (
+      <div className="space-y-6">
+        {/* Comparison Type Selector */}
         <div className="bg-white p-6 rounded-xl shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Tax by Category</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={data.taxChart}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ category, percentage }) => `${category} ${percentage.toFixed(1)}%`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="taxAmount"
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Comparison Settings</h3>
+          
+          {/* Quick Filters */}
+          <div className="mb-6">
+            <h4 className="text-sm font-medium text-gray-700 mb-3">Quick Filters</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <button
+                onClick={() => handleComparisonTypeChange('today_vs_yesterday')}
+                className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                  comparisonType === 'today_vs_yesterday'
+                    ? 'bg-green-100 text-green-700 border-2 border-green-300'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-2 border-transparent'
+                }`}
               >
-                {data.taxChart.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value) => formatCurrency(value)} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+                Today vs Yesterday
+              </button>
+              <button
+                onClick={() => handleComparisonTypeChange('week_vs_last_week')}
+                className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                  comparisonType === 'week_vs_last_week'
+                    ? 'bg-green-100 text-green-700 border-2 border-green-300'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-2 border-transparent'
+                }`}
+              >
+                This Week vs Last Week
+              </button>
+              <button
+                onClick={() => handleComparisonTypeChange('month_vs_last_month')}
+                className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                  comparisonType === 'month_vs_last_month'
+                    ? 'bg-green-100 text-green-700 border-2 border-green-300'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-2 border-transparent'
+                }`}
+              >
+                This Month vs Last Month
+              </button>
+              <button
+                onClick={() => handleComparisonTypeChange('year_vs_last_year')}
+                className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                  comparisonType === 'year_vs_last_year'
+                    ? 'bg-green-100 text-green-700 border-2 border-green-300'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-2 border-transparent'
+                }`}
+              >
+                This Year vs Last Year
+              </button>
+            </div>
+          </div>
 
-      {/* Tax Details Table */}
-      {data.taxChart && data.taxChart.length > 0 && (
+          {/* Custom Period Selection */}
+          {comparisonType === 'custom' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Period 1 */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-gray-900 mb-3">Period 1</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Start Date
+                      </label>
+                      <input
+                        type="date"
+                        value={comparisonPeriods.period1.startDate}
+                        onChange={(e) => handleComparisonPeriodChange('period1', 'startDate', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        End Date
+                      </label>
+                      <input
+                        type="date"
+                        value={comparisonPeriods.period1.endDate}
+                        onChange={(e) => handleComparisonPeriodChange('period1', 'endDate', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Period 2 */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-gray-900 mb-3">Period 2</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Start Date
+                      </label>
+                      <input
+                        type="date"
+                        value={comparisonPeriods.period2.startDate}
+                        onChange={(e) => handleComparisonPeriodChange('period2', 'startDate', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        End Date
+                      </label>
+                      <input
+                        type="date"
+                        value={comparisonPeriods.period2.endDate}
+                        onChange={(e) => handleComparisonPeriodChange('period2', 'endDate', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Period Summary */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h5 className="text-sm font-medium text-gray-900 mb-2">Period Summary</h5>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium text-gray-700">Period 1: </span>
+                    <span className="text-gray-600">
+                      {comparisonPeriods.period1.startDate && comparisonPeriods.period1.endDate
+                        ? `${comparisonPeriods.period1.startDate} → ${comparisonPeriods.period1.endDate}`
+                        : 'Select dates'
+                      }
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Period 2: </span>
+                    <span className="text-gray-600">
+                      {comparisonPeriods.period2.startDate && comparisonPeriods.period2.endDate
+                        ? `${comparisonPeriods.period2.startDate} → ${comparisonPeriods.period2.endDate}`
+                        : 'Select dates'
+                      }
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Comparison Table */}
         <div className="bg-white rounded-xl shadow-lg overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Tax Details by Category</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Period Comparison</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Taxable Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tax Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Percentage</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Metric
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {comparisonType === 'today_vs_yesterday' 
+                      ? 'Yesterday'
+                    : comparisonType === 'week_vs_last_week'
+                      ? 'Last Week'
+                    : comparisonType === 'month_vs_last_month'
+                      ? 'Last Month'
+                    : comparisonType === 'year_vs_last_year'
+                      ? 'Last Year'
+                    : 'Previous Period'
+                    }
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {comparisonType === 'today_vs_yesterday' 
+                      ? 'Today'
+                    : comparisonType === 'week_vs_last_week'
+                      ? 'This Week'
+                    : comparisonType === 'month_vs_last_month'
+                      ? 'This Month'
+                    : comparisonType === 'year_vs_last_year'
+                      ? 'This Year'
+                    : 'Current Period'
+                    }
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Change
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    % Difference
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {data.taxChart.map((item) => (
-                  <tr key={item.category} className="hover:bg-gray-50">
+                {comparisonData.map((row, index) => (
+                  <tr key={index} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {item.category}
+                      {row.metric}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {formatCurrency(item.taxableAmount)}
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${
+                      row.metric === 'Profit Margin' 
+                        ? parseFloat(row.period1.replace(/[$,%]/g, '')) >= 0 
+                          ? 'text-green-600' 
+                          : 'text-red-600'
+                        : 'text-gray-500'
+                    }`}>
+                      {row.period1}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
-                      {formatCurrency(item.taxAmount)}
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${
+                      row.metric === 'Profit Margin' 
+                        ? parseFloat(row.period2.replace(/[$,%]/g, '')) >= 0 
+                          ? 'text-green-600' 
+                          : 'text-red-600'
+                        : 'text-gray-500'
+                    }`}>
+                      {row.period2}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {item.percentage.toFixed(1)}%
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${
+                      row.metric === 'Profit Margin' 
+                        ? parseFloat(row.change.replace(/[$,%]/g, '')) >= 0 
+                          ? 'text-green-600' 
+                          : 'text-red-600'
+                        : parseFloat(row.change.replace(/[$,]/g, '')) >= 0 
+                          ? 'text-green-600' 
+                          : 'text-red-600'
+                    }`}>
+                      {row.change}
+                    </td>
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${
+                      row.percentChange === '—' 
+                        ? 'text-gray-500'
+                        : parseFloat(row.percentChange) >= 0 
+                          ? 'text-green-600' 
+                          : 'text-red-600'
+                    }`}>
+                      {row.percentChange === '—' ? '—' : 
+                       parseFloat(row.percentChange) >= 0 ? `+${row.percentChange.toFixed(1)}%` : `${row.percentChange.toFixed(1)}%`}
                     </td>
                   </tr>
                 ))}
@@ -345,177 +597,58 @@ const FinancialReports = () => {
             </table>
           </div>
         </div>
-      )}
-    </div>
-  );
 
-  const renderPayments = () => (
-    <div className="space-y-6">
-      {/* Payment Summary */}
-      {data.paymentSummary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Card Payments</p>
-                <p className="text-3xl font-bold">
-                  {formatCurrency(data.paymentSummary.cardPayments || 0)}
-                </p>
-              </div>
-              <div className="text-4xl">💳</div>
-            </div>
+        {/* Comparison Chart */}
+        {data.currentPeriod && data.comparisonPeriod && (
+          <div className="bg-white p-6 rounded-xl shadow-lg">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Period Comparison Chart</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={[
+                {
+                  name: comparisonType === 'today_vs_yesterday' 
+                    ? 'Yesterday'
+                  : comparisonType === 'week_vs_last_week'
+                    ? 'Last Week'
+                  : comparisonType === 'month_vs_last_month'
+                    ? 'Last Month'
+                  : comparisonType === 'year_vs_last_year'
+                    ? 'Last Year'
+                  : 'Previous Period',
+                  revenue: comparisonRevenue,
+                  orders: comparisonPeriod.totalOrders || 0,
+                  items: comparisonPeriod.totalItems || 0
+                },
+                {
+                  name: comparisonType === 'today_vs_yesterday' 
+                    ? 'Today'
+                  : comparisonType === 'week_vs_last_week'
+                    ? 'This Week'
+                  : comparisonType === 'month_vs_last_month'
+                    ? 'This Month'
+                  : comparisonType === 'year_vs_last_year'
+                    ? 'This Year'
+                  : 'Current Period',
+                  revenue: currentRevenue,
+                  orders: currentPeriod.totalOrders || 0,
+                  items: currentPeriod.totalItems || 0
+                }
+              ]}>
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip formatter={(value, name) => [
+                  name === 'revenue' ? formatCurrency(value) : value,
+                  name === 'revenue' ? 'Revenue' : name === 'orders' ? 'Orders' : 'Items'
+                ]} />
+                <Bar dataKey="revenue" fill="#0088FE" name="Revenue" />
+                <Bar dataKey="orders" fill="#00C49F" name="Orders" />
+                <Bar dataKey="items" fill="#FFBB28" name="Items" />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Cash Payments</p>
-                <p className="text-3xl font-bold">
-                  {formatCurrency(data.paymentSummary.cashPayments || 0)}
-                </p>
-              </div>
-              <div className="text-4xl">💵</div>
-            </div>
-          </div>
-
-          <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Digital Payments</p>
-                <p className="text-3xl font-bold">
-                  {formatCurrency(data.paymentSummary.digitalPayments || 0)}
-                </p>
-              </div>
-              <div className="text-4xl">📱</div>
-            </div>
-          </div>
-
-          <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Total Payments</p>
-                <p className="text-3xl font-bold">
-                  {formatCurrency(data.paymentSummary.totalPayments || 0)}
-                </p>
-              </div>
-              <div className="text-4xl">📊</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Payment Chart */}
-      {data.paymentChart && (
-        <div className="bg-white p-6 rounded-xl shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Payment Methods</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={data.paymentChart}>
-              <XAxis dataKey="method" />
-              <YAxis />
-              <Tooltip formatter={(value) => formatCurrency(value)} />
-              <Bar dataKey="amount" fill="#8884d8" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </div>
-  );
-
-  const renderEndOfDay = () => (
-    <div className="space-y-6">
-      {/* End of Day Summary */}
-      {data.endOfDaySummary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl shadow-lg text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Daily Revenue</p>
-                <p className="text-3xl font-bold">
-                  {formatCurrency(data.endOfDaySummary.dailyRevenue || 0)}
-                </p>
-              </div>
-              <div className="text-4xl">💰</div>
-            </div>
-          </div>
-
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl shadow-lg text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Orders Today</p>
-                <p className="text-3xl font-bold">
-                  {data.endOfDaySummary.ordersToday || 0}
-                </p>
-              </div>
-              <div className="text-4xl">📋</div>
-            </div>
-          </div>
-
-          <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Avg Order Value</p>
-                <p className="text-3xl font-bold">
-                  {formatCurrency(data.endOfDaySummary.averageOrderValue || 0)}
-                </p>
-              </div>
-              <div className="text-4xl">📊</div>
-            </div>
-          </div>
-
-          <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Total Items</p>
-                <p className="text-3xl font-bold">
-                  {data.endOfDaySummary.totalItems || 0}
-                </p>
-              </div>
-              <div className="text-4xl">📦</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* End of Day Details */}
-      {data.endOfDayDetails && (
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">End of Day Details</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Count</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Percentage</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {data.endOfDayDetails?.map((item) => (
-                  <tr key={item.category} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {item.category}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {formatCurrency(item.amount)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {item.count}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {item.percentage}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
+  };
 
   const renderEmptyState = () => (
     <div className="text-center py-12">
@@ -545,12 +678,8 @@ const FinancialReports = () => {
     switch (activeReport) {
       case 'profit':
         return renderProfit();
-      case 'tax':
-        return renderTax();
-      case 'payments':
-        return renderPayments();
-      case 'end-of-day':
-        return renderEndOfDay();
+      case 'comparative':
+        return renderComparative();
       default:
         return renderProfit();
     }
@@ -566,27 +695,25 @@ const FinancialReports = () => {
         onCustomDateChange={handleCustomDateChange}
         onExport={exportReport}
         title="Financial Reports"
-        subtitle="Revenue, costs, taxes, and payment analysis"
+        subtitle="Revenue, costs, profit analysis, and period comparisons"
+        hideDateRange={activeReport === 'comparative'}
       />
 
       {/* Report Type Selection */}
       <div className="bg-white rounded-xl shadow-lg p-6">
-        <div className="flex flex-wrap gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {reports.map((report) => (
             <button
               key={report.id}
               onClick={() => setActiveReport(report.id)}
-              className={`px-6 py-4 rounded-xl text-sm font-medium flex items-center space-x-3 transition-all ${
+              className={`px-4 py-3 rounded-xl text-sm font-medium flex items-center space-x-3 transition-all ${
                 activeReport === report.id
                   ? 'bg-blue-100 text-blue-700 border-2 border-blue-300 shadow-md'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-2 border-transparent'
               }`}
             >
               <span className="text-xl">{report.icon}</span>
-              <div className="text-left">
-                <div className="font-semibold">{report.name}</div>
-                <div className="text-xs opacity-75">{report.description}</div>
-              </div>
+              <div className="font-semibold">{report.name}</div>
             </button>
           ))}
         </div>

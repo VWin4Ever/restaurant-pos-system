@@ -126,14 +126,14 @@ router.post('/', authenticateToken, requireAdmin, [
       });
     }
 
-    // Validate shift overlap with existing shifts
-    const overlapError = await validateShiftOverlap(startTime, endTime, daysOfWeek);
-    if (overlapError) {
-      return res.status(400).json({
-        success: false,
-        message: overlapError
-      });
-    }
+    // Shift overlap validation disabled - allowing overlapping shifts
+    // const overlapError = await validateShiftOverlap(startTime, endTime, daysOfWeek);
+    // if (overlapError) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: overlapError
+    //   });
+    // }
 
     const shift = await prisma.shift.create({
       data: {
@@ -206,20 +206,20 @@ router.put('/:id', authenticateToken, requireAdmin, [
       }
     }
 
-    // Validate shift overlap if times are being updated
-    if (startTime || endTime) {
-      const finalStartTime = startTime || existingShift.startTime;
-      const finalEndTime = endTime || existingShift.endTime;
-      const finalDaysOfWeek = daysOfWeek !== undefined ? daysOfWeek : (existingShift.daysOfWeek ? JSON.parse(existingShift.daysOfWeek) : null);
-      
-      const overlapError = await validateShiftOverlap(finalStartTime, finalEndTime, finalDaysOfWeek, shiftId);
-      if (overlapError) {
-        return res.status(400).json({
-          success: false,
-          message: overlapError
-        });
-      }
-    }
+    // Shift overlap validation disabled - allowing overlapping shifts
+    // if (startTime || endTime) {
+    //   const finalStartTime = startTime || existingShift.startTime;
+    //   const finalEndTime = endTime || existingShift.endTime;
+    //   const finalDaysOfWeek = daysOfWeek !== undefined ? daysOfWeek : (existingShift.daysOfWeek ? JSON.parse(existingShift.daysOfWeek) : null);
+    //   
+    //   const overlapError = await validateShiftOverlap(finalStartTime, finalEndTime, finalDaysOfWeek, shiftId);
+    //   if (overlapError) {
+    //     return res.status(400).json({
+    //       success: false,
+    //       message: overlapError
+    //     });
+    //   }
+    // }
 
     const shift = await prisma.shift.update({
       where: { id: shiftId },
@@ -324,7 +324,7 @@ router.post('/:id/assign', authenticateToken, requireAdmin, [
 
     // Check if user exists
     const user = await prisma.user.findUnique({
-      where: { id: userId }
+      where: { id: parseInt(userId) }
     });
 
     if (!user) {
@@ -333,6 +333,15 @@ router.post('/:id/assign', authenticateToken, requireAdmin, [
         message: 'User not found'
       });
     }
+
+    // User assignment conflict validation disabled - allowing overlapping shift assignments
+    // const conflictError = await validateUserAssignmentConflict(userId, shiftId, shift);
+    // if (conflictError) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: conflictError
+    //   });
+    // }
 
     // Update user's shift assignment
     const updatedUser = await prisma.user.update({
@@ -518,6 +527,62 @@ function shiftsOverlap(start1, end1, start2, end2) {
 function timeToMinutes(timeString) {
   const [hours, minutes] = timeString.split(':').map(Number);
   return hours * 60 + minutes;
+}
+
+// ENHANCED: Helper function to validate user assignment conflicts
+async function validateUserAssignmentConflict(userId, newShiftId, newShift) {
+  try {
+    // Get all other active shifts that overlap with the new shift
+    const overlappingShifts = await prisma.shift.findMany({
+      where: {
+        isActive: true,
+        id: { not: newShiftId }
+      }
+    });
+
+    // Check if any overlapping shifts have users assigned
+    for (const shift of overlappingShifts) {
+      // Check if shifts have overlapping days
+      const newShiftDays = newShift.daysOfWeek ? JSON.parse(newShift.daysOfWeek) : null;
+      const existingShiftDays = shift.daysOfWeek ? JSON.parse(shift.daysOfWeek) : null;
+      
+      let hasOverlappingDays = true;
+      if (newShiftDays && existingShiftDays) {
+        hasOverlappingDays = newShiftDays.some(day => existingShiftDays.includes(day));
+      } else if (newShiftDays || existingShiftDays) {
+        // One shift has specific days, other doesn't - assume overlap
+        hasOverlappingDays = true;
+      }
+
+      if (hasOverlappingDays) {
+        // Check time overlap
+        if (shiftsOverlap(newShift.startTime, newShift.endTime, shift.startTime, shift.endTime)) {
+          // Check if any users are assigned to this overlapping shift
+          const assignedUsers = await prisma.user.findMany({
+            where: {
+              shiftId: shift.id,
+              role: 'CASHIER' // Only check cashiers for conflicts
+            },
+            select: {
+              id: true,
+              name: true,
+              username: true
+            }
+          });
+
+          if (assignedUsers.length > 0) {
+            const userNames = assignedUsers.map(u => u.name || u.username).join(', ');
+            return `Cannot assign user to "${newShift.name}" shift. This shift overlaps with "${shift.name}" shift (${shift.startTime} - ${shift.endTime}) which has users assigned: ${userNames}. Please reassign conflicting users first.`;
+          }
+        }
+      }
+    }
+
+    return null; // No conflicts found
+  } catch (error) {
+    console.error('Error validating user assignment conflict:', error);
+    return 'Error validating user assignment conflict';
+  }
 }
 
 module.exports = router;

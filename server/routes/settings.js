@@ -110,8 +110,8 @@ async function createFallbackBackup(req, res) {
   }
 }
 
-// Get all settings
-router.get('/', async (req, res) => {
+// Get all settings (Admin only)
+router.get('/', requirePermission('settings.read'), async (req, res) => {
   try {
     // Get settings from database
     const settingsRecords = await prisma.settings.findMany();
@@ -144,15 +144,59 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Get basic business settings (for cashiers and other users)
+router.get('/business', async (req, res) => {
+  try {
+    // Get only business settings from database
+    const businessSettingsRecord = await prisma.settings.findFirst({
+      where: { category: 'business' }
+    });
+    
+    // Use default business settings
+    const businessSettings = { ...DEFAULT_SETTINGS.business };
+
+    // Override with database values if they exist
+    if (businessSettingsRecord) {
+      try {
+        const parsedData = JSON.parse(businessSettingsRecord.data);
+        Object.assign(businessSettings, parsedData);
+      } catch (error) {
+        console.error('Failed to parse business settings data:', error);
+      }
+    }
+
+    // Return only essential business settings that cashiers need
+    const cashierSettings = {
+      business: {
+        vatRate: businessSettings.vatRate,
+        currency: businessSettings.currency,
+        restaurantName: businessSettings.restaurantName,
+        timezone: businessSettings.timezone,
+        // Add other essential settings as needed
+      }
+    };
+
+    res.json({
+      success: true,
+      data: cashierSettings
+    });
+  } catch (error) {
+    console.error('Get business settings error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get business settings'
+    });
+  }
+});
+
 // Update business settings
-router.put('/business', [
+router.put('/business', requirePermission('settings.update'), [
   body('restaurantName').notEmpty().withMessage('Restaurant name is required'),
   body('address').notEmpty().withMessage('Address is required'),
   body('phone').notEmpty().withMessage('Phone number is required'),
   body('email').isEmail().withMessage('Valid email is required'),
-  body('taxRate').isFloat({ min: 0, max: 100 }).withMessage('Tax rate must be between 0 and 100'),
-  body('currency').notEmpty().withMessage('Currency is required'),
-  body('timezone').notEmpty().withMessage('Timezone is required')
+  body('vatRate').isFloat({ min: 0, max: 100 }).withMessage('VAT rate must be between 0 and 100'),
+  body('exchangeRate').isFloat({ min: 0.01, max: 100000 }).withMessage('Exchange rate must be between 0.01 and 100,000')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -169,9 +213,8 @@ router.put('/business', [
       address,
       phone,
       email,
-      taxRate,
-      currency,
-      timezone
+      vatRate,
+      exchangeRate
     } = req.body;
 
     // Fetch existing data
@@ -185,9 +228,8 @@ router.put('/business', [
       address,
       phone,
       email,
-      taxRate: parseFloat(taxRate),
-      currency,
-      timezone
+      vatRate: parseFloat(vatRate),
+      exchangeRate: parseFloat(exchangeRate)
     };
 
     await prisma.settings.upsert({
@@ -213,10 +255,9 @@ router.put('/business', [
 });
 
 // Update system settings
-router.put('/system', [
+router.put('/system', requirePermission('settings.update'), [
   body('autoRefreshInterval').isInt({ min: 10, max: 300 }).withMessage('Auto refresh interval must be between 10 and 300 seconds'),
   body('lowStockThreshold').isInt({ min: 1, max: 100 }).withMessage('Low stock threshold must be between 1 and 100'),
-  body('maxTables').isInt({ min: 1, max: 100 }).withMessage('Maximum tables must be between 1 and 100'),
   body('enableNotifications').isBoolean().withMessage('Enable notifications must be a boolean'),
   body('enableAutoBackup').isBoolean().withMessage('Enable auto backup must be a boolean'),
   body('backupFrequency').optional().isIn(['daily', 'weekly', 'monthly']).withMessage('Backup frequency must be daily, weekly, or monthly')
@@ -234,7 +275,6 @@ router.put('/system', [
     const {
       autoRefreshInterval,
       lowStockThreshold,
-      maxTables,
       enableNotifications,
       enableAutoBackup,
       backupFrequency
@@ -244,7 +284,6 @@ router.put('/system', [
     const systemData = {
       autoRefreshInterval: parseInt(autoRefreshInterval),
       lowStockThreshold: parseInt(lowStockThreshold),
-      maxTables: parseInt(maxTables),
       enableNotifications: Boolean(enableNotifications),
       enableAutoBackup: Boolean(enableAutoBackup),
       backupFrequency: backupFrequency || 'daily'
@@ -281,7 +320,7 @@ router.put('/system', [
 });
 
 // Update security settings
-router.put('/security', [
+router.put('/security', requirePermission('settings.update'), [
   body('sessionTimeout').isInt({ min: 15, max: 480 }).withMessage('Session timeout must be between 15 and 480 minutes'),
   body('forceLogoutOnPasswordChange').isBoolean().withMessage('Force logout on password change must be a boolean'),
   body('minPasswordLength').isInt({ min: 6, max: 20 }).withMessage('Minimum password length must be between 6 and 20'),
@@ -338,7 +377,7 @@ router.put('/security', [
 });
 
 // Reset settings to defaults
-router.post('/reset', async (req, res) => {
+router.post('/reset', requirePermission('settings.reset'), async (req, res) => {
   try {
     // Delete all settings to reset to defaults
     await prisma.settings.deleteMany();

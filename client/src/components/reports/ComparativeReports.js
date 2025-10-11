@@ -16,12 +16,13 @@ const ComparativeReports = () => {
   });
   const [compareWith, setCompareWith] = useState('previous_period');
 
+  // Comparative reports - reorganized by logical grouping
   const reports = [
+    // Analysis
     { 
       id: 'period-analysis', 
       name: 'Period Analysis', 
-      icon: '📊', 
-      description: 'Compare current vs previous periods' 
+      icon: '📊'
     }
   ];
 
@@ -406,22 +407,19 @@ const ComparativeReports = () => {
 
       {/* Report Type Selection */}
       <div className="bg-white rounded-xl shadow-lg p-6">
-        <div className="flex flex-wrap gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {reports.map((report) => (
             <button
               key={report.id}
               onClick={() => setActiveReport(report.id)}
-              className={`px-6 py-4 rounded-xl text-sm font-medium flex items-center space-x-3 transition-all ${
+              className={`px-4 py-3 rounded-xl text-sm font-medium flex items-center space-x-3 transition-all ${
                 activeReport === report.id
                   ? 'bg-blue-100 text-blue-700 border-2 border-blue-300 shadow-md'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-2 border-transparent'
               }`}
             >
               <span className="text-xl">{report.icon}</span>
-              <div className="text-left">
-                <div className="font-semibold">{report.name}</div>
-                <div className="text-xs opacity-75">{report.description}</div>
-              </div>
+              <div className="font-semibold">{report.name}</div>
             </button>
           ))}
         </div>

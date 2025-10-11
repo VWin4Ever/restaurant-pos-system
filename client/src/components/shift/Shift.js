@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import ShiftManagement from '../settings/ShiftManagement';
 import UserShiftAssignment from '../settings/UserShiftAssignment';
 import AdminShiftControl from '../settings/AdminShiftControl';
+import ErrorBoundary from '../common/ErrorBoundary';
 import Icon from '../common/Icon';
 
 const Shift = () => {
@@ -48,9 +49,11 @@ const Shift = () => {
 
         {/* Tab Content */}
         <div className="p-6">
-          {activeTab === 'shifts' && <ShiftManagement />}
-          {activeTab === 'assignment' && <UserShiftAssignment />}
-          {activeTab === 'control' && <AdminShiftControl />}
+          <ErrorBoundary fallbackMessage="Failed to load shift management. Please try refreshing the page.">
+            {activeTab === 'shifts' && <ShiftManagement />}
+            {activeTab === 'assignment' && <UserShiftAssignment />}
+            {activeTab === 'control' && <AdminShiftControl />}
+          </ErrorBoundary>
         </div>
       </div>
     </div>

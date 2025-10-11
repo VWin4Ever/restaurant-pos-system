@@ -553,7 +553,7 @@ const Categories = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
-                        {hasPermission('categories.edit') && (
+                        {hasPermission('categories.update') && (
                           <button
                             onClick={() => openModal(category)}
                             className={`${
@@ -567,7 +567,7 @@ const Categories = () => {
                             Edit
                           </button>
                         )}
-                        {hasPermission('categories.edit') && (
+                        {hasPermission('categories.update') && (
                           <button
                             onClick={() => toggleActive(category.id, category.isActive)}
                             className={`${

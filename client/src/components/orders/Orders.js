@@ -5,9 +5,12 @@ import CreateOrder from './CreateOrder';
 import EditOrder from './EditOrder';
 import OrderFilters from './OrderFilters';
 import InvoiceModal from './InvoiceModal';
+import SimpleReceiptModal from './SimpleReceiptModal';
+import SplitReceiptManager from './SplitReceiptManager';
 import PaymentPage from './PaymentPage';
 import ConfirmDialog from '../common/ConfirmDialog';
 import websocketService from '../../services/websocket';
+import { useSettings } from '../../contexts/SettingsContext';
 import Icon from '../common/Icon';
 
 // 1. Add skeleton loader for orders table
@@ -20,14 +23,33 @@ const OrdersSkeleton = ({ rows = 5 }) => (
 );
 
 const Orders = () => {
-
+  const { getTaxRate } = useSettings();
   const [allOrders, setAllOrders] = useState([]); // Store all orders for client-side filtering
+  
+  // Get VAT rate from order's business snapshot if available, otherwise use current settings
+  const getOrderVATRate = (order) => {
+    if (order?.businessSnapshot) {
+      try {
+        const snapshot = typeof order.businessSnapshot === 'string' 
+          ? JSON.parse(order.businessSnapshot) 
+          : order.businessSnapshot;
+        return snapshot.vatRate || snapshot.taxRate || getTaxRate();
+      } catch (error) {
+        console.error('Failed to parse business snapshot:', error);
+        return getTaxRate();
+      }
+    }
+    return getTaxRate();
+  };
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [showPaymentPage, setShowPaymentPage] = useState(false);
+  const [showSplitReceiptManager, setShowSplitReceiptManager] = useState(false);
+  const [showSimpleReceipt, setShowSimpleReceipt] = useState(false);
+  const [showDraftReceipt, setShowDraftReceipt] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [showTodayOnly] = useState(true); // New state for toggle
@@ -523,6 +545,7 @@ const Orders = () => {
             <Icon name="add" size="sm" />
             <span>Create New Order</span>
           </button>
+          
         </div>
       </div>
 
@@ -662,6 +685,42 @@ const Orders = () => {
                         <Icon name="download" className="mr-2" />
                         <span className="hidden sm:inline">Invoice</span>
                       </button>
+                      
+                      {order.status === 'PENDING' ? (
+                        <button
+                          className="btn-success flex items-center px-4 py-2 rounded-lg text-sm font-semibold shadow-sm"
+                          onClick={e => { 
+                            e.stopPropagation(); 
+                            handlePayment(order);
+                          }}
+                          aria-label={`Pay for order ${order.orderNumber}`}
+                        >
+                          <Icon name="creditCard" className="mr-2" />
+                          <span className="hidden sm:inline">Pay</span>
+                        </button>
+                      ) : (
+                        <button
+                          className="btn-secondary flex items-center px-4 py-2 rounded-lg text-sm font-semibold shadow-sm"
+                          onClick={e => { 
+                            e.stopPropagation(); 
+                            
+                            // Check if this is a split payment
+                            if (order.splitBill && order.splitAmounts) {
+                              // For split payments, show SplitReceiptManager
+                              setSelectedOrder(order);
+                              setShowSplitReceiptManager(true);
+                            } else {
+                              // For full payments, directly show the receipt
+                              setSelectedOrder(order);
+                              setShowDraftReceipt(true);
+                            }
+                          }}
+                          aria-label={`Print receipt for order ${order.orderNumber}`}
+                        >
+                          <Icon name="receipt" className="mr-2" />
+                          <span className="hidden sm:inline">Receipt</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -818,12 +877,12 @@ const Orders = () => {
                     </div>
                     {selectedOrder.discount > 0 && (
                       <div className="flex justify-between items-center p-3 bg-white/50 rounded-xl">
-                        <span className="font-medium text-neutral-700">Discount:</span>
+                        <span className="font-medium text-neutral-700">Discount ({Math.round((parseFloat(selectedOrder.discount) / (selectedOrder.orderItems.reduce((sum, item) => sum + parseFloat(item.subtotal), 0))) * 100)}%):</span>
                         <span className="font-bold text-danger-600">-${parseFloat(selectedOrder.discount).toFixed(2)}</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center p-3 bg-white/50 rounded-xl">
-                      <span className="font-medium text-neutral-700">Tax:</span>
+                      <span className="font-medium text-neutral-700">VAT ({getOrderVATRate(selectedOrder)}%):</span>
                       <span className="font-bold text-neutral-900">
                         ${(parseFloat(selectedOrder.total) - parseFloat(selectedOrder.subtotal) + parseFloat(selectedOrder.discount || 0)).toFixed(2)}
                       </span>
@@ -868,17 +927,36 @@ const Orders = () => {
                         className="btn-success flex items-center space-x-2"
                       >
                         <Icon name="creditCard" size="sm" />
-                        <span>Process Payment</span>
+                        <span>Pay</span>
                       </button>
                     )}
                     {selectedOrder.status === 'COMPLETED' && (
-                      <button
-                        onClick={() => handlePrintInvoice(selectedOrder)}
-                        className="btn-primary flex items-center space-x-2"
-                      >
-                        <Icon name="download" size="sm" />
-                        <span>Print Invoice</span>
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handlePrintInvoice(selectedOrder)}
+                          className="btn-primary flex items-center space-x-2"
+                        >
+                          <Icon name="download" size="sm" />
+                          <span>Print Invoice</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            // Check if this is a split payment
+                            if (selectedOrder.splitBill && selectedOrder.splitAmounts) {
+                              // For split payments, show SplitReceiptManager
+                              setShowSplitReceiptManager(true);
+                            } else {
+                              // For full payments, directly show the receipt
+                              setShowDraftReceipt(true);
+                            }
+                          }}
+                          className="btn-secondary flex items-center space-x-2"
+                        >
+                          <Icon name="receipt" size="sm" />
+                          <span>Receipt</span>
+                        </button>
+                      </>
                     )}
                     {selectedOrder.status === 'PENDING' && (
                       <button
@@ -937,6 +1015,41 @@ const Orders = () => {
             setSelectedOrder(null);
           }}
           onPaymentSuccess={handlePaymentSuccess}
+        />
+      )}
+
+      {/* Split Receipt Manager Modal */}
+      {showSplitReceiptManager && selectedOrder && (
+        <SplitReceiptManager
+          order={selectedOrder}
+          receiptType="final"
+          onClose={() => {
+            setShowSplitReceiptManager(false);
+            setSelectedOrder(null);
+          }}
+        />
+      )}
+
+      {/* Simple Receipt Modal */}
+      {showSimpleReceipt && selectedOrder && (
+        <SimpleReceiptModal
+          order={selectedOrder}
+          onClose={() => {
+            setShowSimpleReceipt(false);
+            setSelectedOrder(null);
+          }}
+        />
+      )}
+
+      {/* Receipt Modal */}
+      {showDraftReceipt && selectedOrder && (
+        <SimpleReceiptModal
+          order={selectedOrder}
+          receiptType={selectedOrder.status === 'PENDING' ? 'draft' : 'final'}
+          onClose={() => {
+            setShowDraftReceipt(false);
+            setSelectedOrder(null);
+          }}
         />
       )}
 

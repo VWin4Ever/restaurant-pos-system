@@ -2,9 +2,22 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
 const dayjs = require('dayjs');
+const rateLimit = require('express-rate-limit');
 
 const router = express.Router();
 const prisma = new PrismaClient();
+
+// Rate limiting for payment endpoint
+const paymentRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit each IP to 10 payment attempts per windowMs
+  message: {
+    success: false,
+    message: 'Too many payment attempts, please try again later'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Helper function to get business settings
 const getBusinessSettings = async () => {
@@ -18,7 +31,7 @@ const getBusinessSettings = async () => {
     address: '123 Main Street, City, State 12345',
     phone: '+1 (555) 123-4567',
     email: 'info@restaurant.com',
-    taxRate: 8.5,
+    vatRate: 10.0,
     currency: 'USD',
     timezone: 'America/New_York'
   };
@@ -256,9 +269,9 @@ router.post('/', [
 
     // Get business settings for tax calculation and snapshot
     const businessSettings = await getBusinessSettings();
-    const taxRate = businessSettings.taxRate || 8.5;
-    const tax = (subtotal * taxRate) / 100;
-    const total = subtotal + tax - discount;
+    const vatRate = businessSettings.vatRate || 10.0;
+    const tax = (subtotal * vatRate) / 100;
+    const total = Math.round((subtotal + tax - discount) * 100) / 100;
 
     // Create order with transaction
     const order = await prisma.$transaction(async (tx) => {
@@ -285,6 +298,34 @@ router.post('/', [
           orderId: newOrder.id
         }))
       });
+
+      // Deduct stock for products that need stock tracking (reserve stock immediately)
+      for (const item of orderItems) {
+        const product = await tx.product.findUnique({
+          where: { id: item.productId },
+          include: { stock: true }
+        });
+
+        if (product.needStock && product.stock) {
+          const newQuantity = Math.max(0, product.stock.quantity - item.quantity);
+          
+          await tx.stock.update({
+            where: { id: product.stock.id },
+            data: { quantity: newQuantity }
+          });
+
+          // Log stock deduction
+          await tx.stockLog.create({
+            data: {
+              stockId: product.stock.id,
+              userId: req.user.id,
+              type: 'REMOVE',
+              quantity: item.quantity,
+              note: `Order #${newOrder.orderNumber} created (stock reserved)`
+            }
+          });
+        }
+      }
 
       // Update table status
       await tx.table.update({
@@ -347,8 +388,21 @@ router.post('/', [
 
 
 // Update order status and process payment
-router.patch('/:id/pay', [
+router.patch('/:id/pay', paymentRateLimit, [
   body('currency').optional().isIn(['USD', 'Riel']).withMessage('Invalid currency'),
+  body('rielAmount').optional().custom((value, { req }) => {
+    // Only validate rielAmount if currency is 'Riel'
+    if (req.body.currency === 'Riel') {
+      if (value === null || value === undefined || value === '') {
+        throw new Error('Riel amount is required when paying in Riel');
+      }
+      const numValue = parseFloat(value);
+      if (isNaN(numValue) || numValue <= 0) {
+        throw new Error('Riel amount must be a positive number');
+      }
+    }
+    return true;
+  }),
   body('splitBill').optional().isBoolean().withMessage('Split bill must be boolean'),
   body('splitAmounts').optional().isArray().withMessage('Split amounts must be array'),
   body('mixedPayments').optional().isBoolean().withMessage('Mixed payments must be boolean'),
@@ -372,6 +426,45 @@ router.patch('/:id/pay', [
     }
 
     const { currency = 'USD', splitBill = false, splitAmounts = [], mixedPayments = false, paymentMethods = [], nestedPayments = false, mixedCurrency = false, splitMixedCurrency = false } = req.body;
+    
+    // Enhanced validation
+    const validationErrors = [];
+    
+    // Validate payment amounts
+    if (splitBill && splitAmounts.length > 0) {
+      const splitTotal = splitAmounts.reduce((sum, split) => {
+        const amount = parseFloat(split.amount) || 0;
+        if (amount <= 0) {
+          validationErrors.push(`Split amount must be greater than 0`);
+        }
+        return sum + amount;
+      }, 0);
+      
+      if (splitTotal <= 0) {
+        validationErrors.push('Total split amount must be greater than 0');
+      }
+    }
+    
+    // Validate payment methods
+    if (mixedPayments && paymentMethods.length > 0) {
+      paymentMethods.forEach((method, index) => {
+        const amount = parseFloat(method.amount) || 0;
+        if (amount <= 0) {
+          validationErrors.push(`Payment method ${index + 1} amount must be greater than 0`);
+        }
+        if (!['CASH', 'CARD', 'QR'].includes(method.method)) {
+          validationErrors.push(`Invalid payment method: ${method.method}`);
+        }
+      });
+    }
+    
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment validation failed',
+        errors: validationErrors
+      });
+    }
     
     // Ensure paymentMethods is always an array
     const safePaymentMethods = Array.isArray(paymentMethods) ? paymentMethods : [];
@@ -418,13 +511,28 @@ router.patch('/:id/pay', [
         primaryPaymentMethod = safePaymentMethods[0].method;
       }
 
-      // Update order status
+      // Calculate paid amounts in both currencies
+      let paidUsd = 0;
+      let paidRiel = 0;
+      
+      if (currency === 'USD') {
+        paidUsd = parseFloat(order.total);
+      } else if (currency === 'Riel') {
+        // Use the actual Riel amount from the payment request
+        const rielAmount = parseFloat(req.body.rielAmount) || 0;
+        paidRiel = rielAmount; // Store the exact Riel amount paid
+        console.log(`Storing Riel payment: ${rielAmount} Riel for order ${orderId}`);
+      }
+
+      // Update order status (stock already deducted at order creation)
       await tx.order.update({
         where: { id: orderId },
         data: {
           status: 'COMPLETED',
           paymentMethod: primaryPaymentMethod,
           currency: currency,
+          paidUsd: paidUsd,
+          paidRiel: paidRiel,
           splitBill: splitBill,
           splitAmounts: splitBill ? JSON.stringify(splitAmounts) : null,
           mixedPayments: mixedPayments,
@@ -435,28 +543,7 @@ router.patch('/:id/pay', [
         }
       });
 
-      // Deduct stock for products that need stock tracking
-      for (const item of order.orderItems) {
-        if (item.product.needStock && item.product.stock) {
-          const newQuantity = item.product.stock.quantity - item.quantity;
-          
-          await tx.stock.update({
-            where: { id: item.product.stock.id },
-            data: { quantity: newQuantity }
-          });
-
-          // Log stock deduction
-          await tx.stockLog.create({
-            data: {
-              stockId: item.product.stock.id,
-              userId: req.user.id,
-              type: 'REMOVE',
-              quantity: item.quantity,
-              note: `Order #${order.orderNumber} payment`
-            }
-          });
-        }
-      }
+      // Note: Stock was already deducted when order was created, no need to deduct again
 
       // Update table status
       await tx.table.update({
@@ -491,7 +578,16 @@ router.patch('/:id/cancel', async (req, res) => {
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { table: true }
+      include: { 
+        table: true,
+        orderItems: {
+          include: {
+            product: {
+              include: { stock: true }
+            }
+          }
+        }
+      }
     });
 
     if (!order) {
@@ -514,6 +610,31 @@ router.patch('/:id/cancel', async (req, res) => {
         where: { id: orderId },
         data: { status: 'CANCELLED' }
       });
+
+      // Restore stock for products that need stock tracking
+      for (const item of order.orderItems) {
+        if (item.product.needStock && item.product.stock) {
+          await tx.stock.update({
+            where: { id: item.product.stock.id },
+            data: { 
+              quantity: {
+                increment: item.quantity
+              }
+            }
+          });
+
+          // Log stock restoration
+          await tx.stockLog.create({
+            data: {
+              stockId: item.product.stock.id,
+              userId: req.user.id,
+              type: 'ADD',
+              quantity: item.quantity,
+              note: `Order #${order.orderNumber} cancelled (stock restored)`
+            }
+          });
+        }
+      }
 
       // Update table status
       await tx.table.update({
@@ -649,12 +770,37 @@ router.put('/:id', [
       businessSnapshot = await getBusinessSettings();
     }
     
-    const taxRate = businessSnapshot.taxRate || 8.5;
-    const tax = (subtotal * taxRate) / 100;
-    const total = subtotal + tax - discount;
+    const vatRate = businessSnapshot.vatRate || 10.0;
+    const tax = (subtotal * vatRate) / 100;
+    const total = Math.round((subtotal + tax - discount) * 100) / 100;
 
     // Update order with transaction
     const updatedOrder = await prisma.$transaction(async (tx) => {
+      // Restore stock from old order items
+      for (const oldItem of existingOrder.orderItems) {
+        if (oldItem.product.needStock && oldItem.product.stock) {
+          await tx.stock.update({
+            where: { id: oldItem.product.stock.id },
+            data: { 
+              quantity: {
+                increment: oldItem.quantity
+              }
+            }
+          });
+
+          // Log stock restoration
+          await tx.stockLog.create({
+            data: {
+              stockId: oldItem.product.stock.id,
+              userId: req.user.id,
+              type: 'ADD',
+              quantity: oldItem.quantity,
+              note: `Order #${existingOrder.orderNumber} updated (old stock restored)`
+            }
+          });
+        }
+      }
+
       // Delete existing order items
       await tx.orderItem.deleteMany({
         where: { orderId }
@@ -686,6 +832,34 @@ router.put('/:id', [
           orderId
         }))
       });
+
+      // Deduct stock for new order items
+      for (const item of orderItems) {
+        const product = await tx.product.findUnique({
+          where: { id: item.productId },
+          include: { stock: true }
+        });
+
+        if (product.needStock && product.stock) {
+          const newQuantity = Math.max(0, product.stock.quantity - item.quantity);
+          
+          await tx.stock.update({
+            where: { id: product.stock.id },
+            data: { quantity: newQuantity }
+          });
+
+          // Log stock deduction
+          await tx.stockLog.create({
+            data: {
+              stockId: product.stock.id,
+              userId: req.user.id,
+              type: 'REMOVE',
+              quantity: item.quantity,
+              note: `Order #${existingOrder.orderNumber} updated (new stock reserved)`
+            }
+          });
+        }
+      }
 
       return order;
     });

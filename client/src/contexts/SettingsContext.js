@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
+import { useAuth } from './AuthContext';
 
 const SettingsContext = createContext();
 
@@ -13,13 +14,14 @@ export const useSettings = () => {
 };
 
 export const SettingsProvider = ({ children }) => {
+  const { user } = useAuth();
   const [settings, setSettings] = useState({
     business: {
       restaurantName: 'Restaurant POS',
       address: '123 Main Street, City, State 12345',
       phone: '+1 (555) 123-4567',
       email: 'info@restaurant.com',
-      taxRate: 10.0, // Updated to 10% as requested
+      vatRate: 10.0, // Updated to 10% as requested
       currency: 'USD',
       timezone: 'Asia/Phnom_Penh' // Updated to Cambodia timezone
     },
@@ -43,11 +45,27 @@ export const SettingsProvider = ({ children }) => {
 
   const fetchSettings = async () => {
     try {
-      const response = await axios.get('/api/settings');
+      // Use different endpoint based on user role
+      const endpoint = user?.role === 'ADMIN' ? '/api/settings' : '/api/settings/business';
+      const response = await axios.get(endpoint);
       const fetchedSettings = response.data.data;
+      
       console.log('Settings fetched:', fetchedSettings);
-      console.log('Tax Rate from settings:', fetchedSettings.business?.taxRate);
-      setSettings(fetchedSettings);
+      console.log('VAT Rate from settings:', fetchedSettings.business?.vatRate);
+      
+      // For cashiers, we only get business settings, so merge with existing defaults
+      if (user?.role === 'CASHIER') {
+        setSettings(prev => ({
+          ...prev,
+          business: {
+            ...prev.business,
+            ...fetchedSettings.business
+          }
+        }));
+      } else {
+        // For admins, replace all settings
+        setSettings(fetchedSettings);
+      }
     } catch (error) {
       console.error('Failed to fetch settings:', error);
       // Don't show error toast for initial load
@@ -85,9 +103,9 @@ export const SettingsProvider = ({ children }) => {
 
   // Helper functions for common operations
   const getTaxRate = () => {
-    const taxRate = settings.business?.taxRate;
-    // Return taxRate if it's a number, otherwise default to 8.5
-    return typeof taxRate === 'number' ? taxRate : 8.5;
+    const vatRate = settings.business?.vatRate;
+    // Return vatRate if it's a number, otherwise default to 10.0
+    return typeof vatRate === 'number' ? vatRate : 10.0;
   };
   const getCurrency = () => settings.business?.currency || 'USD';
   const getRestaurantName = () => settings.business?.restaurantName || 'Restaurant POS';
@@ -124,12 +142,12 @@ export const SettingsProvider = ({ children }) => {
   useEffect(() => {
     // Only fetch settings if user is authenticated
     const token = localStorage.getItem('token');
-    if (token) {
+    if (token && user) {
       fetchSettings();
-    } else {
+    } else if (!token) {
       setLoading(false);
     }
-  }, []);
+  }, [user]); // Depend on user to refetch when user changes
 
   const value = {
     settings,

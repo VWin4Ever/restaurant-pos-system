@@ -21,10 +21,10 @@ const Layout = () => {
     { name: 'Dashboard', href: '/dashboard', icon: 'home' },
     { name: 'Orders', href: '/orders', icon: 'orders' },
     { name: 'Tables', href: '/tables', icon: 'tables' },
-    ...(hasPermission('products.view') ? [
+    ...(hasPermission('products.read') ? [
       { name: 'Products', href: '/products', icon: 'products' },
     ] : []),
-    ...(hasPermission('categories.view') ? [
+    ...(hasPermission('categories.read') ? [
       { name: 'Categories', href: '/categories', icon: 'categories' },
     ] : []),
     ...(isAdmin ? [
@@ -417,7 +417,7 @@ const Layout = () => {
             <div className="flex items-center space-x-4">
               {/* Clock In/Out Component */}
               <div className="hidden lg:block">
-                <ClockInOut />
+                <ClockInOut compact={true} />
               </div>
               <div className="flex items-center space-x-2">
                 <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center">

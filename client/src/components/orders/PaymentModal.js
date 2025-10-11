@@ -2,10 +2,28 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import Icon from '../common/Icon';
+import { useSettings } from '../../contexts/SettingsContext';
 
 const PaymentModal = ({ order, onClose, onPaymentSuccess }) => {
+  const { getTaxRate, settings } = useSettings();
   const [paymentMethod, setPaymentMethod] = useState('CARD');
   const [processing, setProcessing] = useState(false);
+  
+  // Get VAT rate from order's business snapshot if available, otherwise use current settings
+  const getOrderVATRate = () => {
+    if (order?.businessSnapshot) {
+      try {
+        const snapshot = typeof order.businessSnapshot === 'string' 
+          ? JSON.parse(order.businessSnapshot) 
+          : order.businessSnapshot;
+        return snapshot.vatRate || snapshot.taxRate || getTaxRate();
+      } catch (error) {
+        console.error('Failed to parse business snapshot:', error);
+        return getTaxRate();
+      }
+    }
+    return getTaxRate();
+  };
 
   const handlePayment = async () => {
     if (!order) return;
@@ -46,7 +64,7 @@ const PaymentModal = ({ order, onClose, onPaymentSuccess }) => {
               <Icon name="creditCard" className="w-5 h-5 text-green-600" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Process Payment</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Pay</h3>
               <p className="text-sm text-gray-600">Order #{order.orderNumber}</p>
             </div>
           </div>
@@ -60,24 +78,34 @@ const PaymentModal = ({ order, onClose, onPaymentSuccess }) => {
 
         {/* Order Summary */}
         <div className="bg-gray-50 rounded-lg p-4 mb-6">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-blue-700 font-medium">Exchange Rate:</span>
+              <span className="text-blue-800 font-bold">1 USD = {(settings.business?.exchangeRate || 4100).toLocaleString()} Riel</span>
+            </div>
+          </div>
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm text-gray-600">Subtotal:</span>
             <span className="font-medium">${parseFloat(order.subtotal).toFixed(2)}</span>
           </div>
           <div className="flex justify-between items-center mb-2">
-            <span className="text-sm text-gray-600">Tax:</span>
+            <span className="text-sm text-gray-600">VAT ({getOrderVATRate()}%):</span>
             <span className="font-medium">${parseFloat(order.tax).toFixed(2)}</span>
           </div>
           {order.discount > 0 && (
             <div className="flex justify-between items-center mb-2">
-              <span className="text-sm text-gray-600">Discount:</span>
+              <span className="text-sm text-gray-600">Discount ({Math.round((parseFloat(order.discount) / (order.orderItems.reduce((sum, item) => sum + parseFloat(item.subtotal), 0))) * 100)}%):</span>
               <span className="font-medium text-red-600">-${parseFloat(order.discount).toFixed(2)}</span>
             </div>
           )}
           <div className="border-t border-gray-200 pt-2 mt-2">
             <div className="flex justify-between items-center">
-              <span className="text-lg font-semibold text-gray-900">Total:</span>
+              <span className="text-lg font-semibold text-gray-900">Total (USD):</span>
               <span className="text-xl font-bold text-green-600">${parseFloat(order.total).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between items-center mt-1">
+              <span className="text-lg font-semibold text-gray-900">Total (Riel):</span>
+              <span className="text-xl font-bold text-orange-600">{Math.ceil((parseFloat(order.total) * (settings.business?.exchangeRate || 4100)) / 100) * 100} Riel</span>
             </div>
           </div>
         </div>
@@ -136,7 +164,7 @@ const PaymentModal = ({ order, onClose, onPaymentSuccess }) => {
             ) : (
               <>
                 <Icon name="check" className="w-4 h-4" />
-                Process Payment
+                Pay
               </>
             )}
           </button>

@@ -99,7 +99,8 @@ This data dictionary documents the complete database schema for the Restaurant P
 **Business Rules:**
 - Each user can have multiple permissions
 - Permission format: "resource.action" (e.g., "orders.create")
-- Common permissions: orders.create, orders.read, products.read, categories.read, tables.read, stock.read
+- Standard CRUD permissions: create, read, update, delete
+- Common cashier permissions: orders.create, orders.read, orders.update, products.read, categories.read, tables.read, tables.update, stock.read, reports.read
 - Cascade delete when user is deleted
 - Permissions are checked during application access
 

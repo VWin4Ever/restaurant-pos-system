@@ -509,6 +509,9 @@ const Stock = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Image
+                </th>
                 <th 
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                   onClick={() => handleSort('productName')}
@@ -560,6 +563,25 @@ const Stock = () => {
                   return (
                     <tr key={item.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
+                        <div className="flex-shrink-0 h-16 w-16">
+                          {item.product.imageUrl ? (
+                            <img
+                              src={item.product.imageUrl}
+                              alt={item.product.name}
+                              className="h-16 w-16 rounded-lg object-cover shadow-sm"
+                              onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.src = 'https://via.placeholder.com/64?text=No+Image';
+                              }}
+                            />
+                          ) : (
+                            <div className="h-16 w-16 rounded-lg bg-gray-200 flex items-center justify-center text-gray-400 text-xs">
+                              No Image
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
                         <div>
                           <div className="text-sm font-medium text-gray-900">{item.product.name}</div>
                           <div className="text-sm text-gray-500">{item.product.category.name}</div>
@@ -609,7 +631,7 @@ const Stock = () => {
                 })
               ) : (
                 <tr>
-                  <td colSpan="6" className="px-6 py-12 text-center">
+                  <td colSpan="7" className="px-6 py-12 text-center">
                     <div className="text-gray-500">
                       <div className="text-4xl mb-4">🥤</div>
                       <div className="text-lg font-medium mb-2">No drink stock found</div>

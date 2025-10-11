@@ -542,11 +542,11 @@ const Products = () => {
             className={`bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl shadow-lg text-white hover:from-purple-600 hover:to-purple-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-purple-300 focus:outline-none ${
               quickFilter === 'drinks' ? 'ring-4 ring-purple-300 scale-105' : ''
             }`}
-            title={quickFilter === 'drinks' ? 'Click to show all products' : 'Click to filter and show only products that need stock tracking'}
+            title={quickFilter === 'drinks' ? 'Click to show all products' : 'Click to filter and show only products with stock tracking'}
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm opacity-90">Need Stock</p>
+                <p className="text-sm opacity-90">With Stock</p>
                 <p className="text-3xl font-bold">{filteredProducts.filter(p => p.needStock).length}</p>
               </div>
               <div className="text-4xl">📦</div>
@@ -558,11 +558,11 @@ const Products = () => {
             className={`bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl shadow-lg text-white hover:from-orange-600 hover:to-orange-700 hover:shadow-xl transition-all duration-200 hover:scale-105 focus:ring-4 focus:ring-orange-300 focus:outline-none ${
               quickFilter === 'food' ? 'ring-4 ring-orange-300 scale-105' : ''
             }`}
-            title={quickFilter === 'food' ? 'Click to show all products' : 'Click to filter and show only products that do not need stock tracking'}
+            title={quickFilter === 'food' ? 'Click to show all products' : 'Click to filter and show only products without stock tracking'}
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm opacity-90">No Stock</p>
+                <p className="text-sm opacity-90">Without Stock</p>
                 <p className="text-3xl font-bold">{filteredProducts.filter(p => !p.needStock).length}</p>
               </div>
               <div className="text-4xl">🍽️</div>
@@ -572,7 +572,7 @@ const Products = () => {
         
         {/* Controls Row */}
         <div className="flex flex-col sm:flex-row justify-end items-center gap-3 sm:gap-6 w-full">
-          {hasPermission('products.export') && (
+          {hasPermission('products.read') && (
             <button
               onClick={handleExport}
               className="btn-secondary"
@@ -800,7 +800,7 @@ const Products = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex space-x-2">
-                      {hasPermission('products.edit') && (
+                      {hasPermission('products.update') && (
                         <button
                           onClick={() => openEditModal(product)}
                           className="text-primary-600 hover:text-primary-900"
@@ -808,7 +808,7 @@ const Products = () => {
                           Edit
                         </button>
                       )}
-                      {hasPermission('products.edit') && (
+                      {hasPermission('products.update') && (
                         <button
                           onClick={() => toggleActive(product.id, product.isActive)}
                           className={`${
@@ -924,7 +924,7 @@ const Products = () => {
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Price *</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cost Price *</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Category *</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Need Stock</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">With Stock</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Image</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
@@ -982,7 +982,7 @@ const Products = () => {
                               checked={product.needStock}
                               onChange={(e) => updateBulkProduct(index, 'needStock', e.target.checked)}
                               className="w-4 h-4 text-primary-600 bg-gray-100 border-gray-300 rounded focus:ring-primary-500 focus:ring-2"
-                              title="Check if this product needs stock tracking"
+                              title="Check if this product has stock tracking"
                             />
                           </td>
                           <td className="px-3 py-2">

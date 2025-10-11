@@ -6,13 +6,26 @@ import logo from '../../assets/logo.png';
 
 const InvoiceModal = ({ order, onClose }) => {
   const printRef = useRef();
-  const { settings, formatCurrency } = useSettings();
+  const { settings, formatCurrency, getTaxRate } = useSettings();
   const [isPrinting, setIsPrinting] = useState(false);
   
   // Use business snapshot from order if available, otherwise use current settings
-  const businessSnapshot = order.businessSnapshot || {};
+  let businessSnapshot = order.businessSnapshot || {};
+  if (typeof businessSnapshot === 'string') {
+    try {
+      businessSnapshot = JSON.parse(businessSnapshot);
+    } catch (error) {
+      console.error('Failed to parse business snapshot:', error);
+      businessSnapshot = {};
+    }
+  }
   const currentBusiness = settings.business || {};
   const business = businessSnapshot.restaurantName ? businessSnapshot : currentBusiness;
+  
+  // Get VAT rate from business snapshot
+  const getOrderVATRate = () => {
+    return business.vatRate || business.taxRate || getTaxRate();
+  };
 
   // Optimized memoized calculations
   const invoiceData = useMemo(() => {
@@ -373,12 +386,12 @@ const InvoiceModal = ({ order, onClose }) => {
                   <span className="font-semibold text-gray-900">{formatCurrency(invoiceData.subtotal)}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Tax:</span>
+                  <span className="text-gray-600">VAT ({getOrderVATRate()}%):</span>
                   <span className="font-semibold text-gray-900">{formatCurrency(invoiceData.tax)}</span>
                   </div>
                   {invoiceData.discount > 0 && (
                     <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Discount:</span>
+                    <span className="text-gray-600">Discount ({Math.round((parseFloat(invoiceData.discount) / (order.orderItems.reduce((sum, item) => sum + parseFloat(item.subtotal), 0))) * 100)}%):</span>
                     <span className="font-semibold text-red-600">-{formatCurrency(invoiceData.discount)}</span>
                   </div>
                 )}

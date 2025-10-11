@@ -113,13 +113,12 @@ Cashiers start with these basic permissions:
 - `orders.create` - Create orders
 - `orders.read` - View orders
 - `orders.update` - Modify orders
-- `products.view` - View products
-- `categories.view` - View categories
+- `products.read` - View products
+- `categories.read` - View categories
 - `tables.read` - View tables
 - `tables.update` - Update table status
-- `stock.read` - View stock levels
-- `stock.update` - Update stock quantities
-- `reports.view` - View reports
+- `stock.read` - View stock levels (read-only)
+- `reports.read` - View basic reports
 
 #### **Additional Permissions**
 Admins can grant cashiers additional permissions such as:

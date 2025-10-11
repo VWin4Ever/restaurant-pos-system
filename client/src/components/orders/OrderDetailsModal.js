@@ -1,10 +1,29 @@
 import React from 'react';
+import { useSettings } from '../../contexts/SettingsContext';
 import Icon from '../common/Icon';
 
 const OrderDetailsModal = ({ order, onClose, onEdit, onPayment, onCancel, onPrintInvoice }) => {
+  const { getTaxRate } = useSettings();
+  
   if (!order) {
     return null;
   }
+  
+  // Get VAT rate from order's business snapshot if available, otherwise use current settings
+  const getOrderVATRate = () => {
+    if (order?.businessSnapshot) {
+      try {
+        const snapshot = typeof order.businessSnapshot === 'string' 
+          ? JSON.parse(order.businessSnapshot) 
+          : order.businessSnapshot;
+        return snapshot.vatRate || snapshot.taxRate || getTaxRate();
+      } catch (error) {
+        console.error('Failed to parse business snapshot:', error);
+        return getTaxRate();
+      }
+    }
+    return getTaxRate();
+  };
 
   const formatCurrency = (amount) => {
     if (typeof amount !== 'number') amount = Number(amount) || 0;
@@ -136,12 +155,12 @@ const OrderDetailsModal = ({ order, onClose, onEdit, onPayment, onCancel, onPrin
                 <span className="font-semibold text-gray-900">{formatCurrency(order.subtotal)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">Tax:</span>
+                <span className="text-gray-600">VAT ({getOrderVATRate()}%):</span>
                 <span className="font-semibold text-gray-900">{formatCurrency(order.tax)}</span>
               </div>
               {order.discount > 0 && (
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Discount:</span>
+                  <span className="text-gray-600">Discount ({Math.round((parseFloat(order.discount) / (order.orderItems.reduce((sum, item) => sum + parseFloat(item.subtotal), 0))) * 100)}%):</span>
                   <span className="font-semibold text-red-600">-{formatCurrency(order.discount)}</span>
                 </div>
               )}
@@ -183,7 +202,7 @@ const OrderDetailsModal = ({ order, onClose, onEdit, onPayment, onCancel, onPrin
                 className="btn-success flex items-center space-x-2"
               >
                 <Icon name="creditCard" size="sm" />
-                <span>Process Payment</span>
+                <span>Pay</span>
               </button>
             )}
             

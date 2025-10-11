@@ -13,7 +13,7 @@ const schema = yup.object({
 }).required();
 
 const EditOrder = ({ order, onClose, onOrderUpdated }) => {
-  const { calculateTax, formatCurrency } = useSettings();
+  const { calculateTax, formatCurrency, getTaxRate } = useSettings();
   
   // Core state
   const [products, setProducts] = useState([]);
@@ -153,7 +153,7 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
         // Calculate discount percentage from existing order
         const existingSubtotal = order.orderItems.reduce((sum, item) => sum + parseFloat(item.subtotal), 0);
         const existingDiscountPercent = existingSubtotal > 0 ? 
-          Math.round((parseFloat(order.discount) / existingSubtotal) * 100 * 100) / 100 : 0;
+          Math.round((parseFloat(order.discount) / existingSubtotal) * 100) : 0;
 
         // Set form values
         setValue('discount', existingDiscountPercent);
@@ -576,7 +576,7 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
                   <span className="font-medium text-text-primary">{formatCurrency(calculations.subtotal)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-text-secondary">Tax:</span>
+                  <span className="text-text-secondary">VAT ({getTaxRate()}%):</span>
                   <span className="font-medium text-text-primary">{formatCurrency(calculations.tax)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -586,15 +586,23 @@ const EditOrder = ({ order, onClose, onOrderUpdated }) => {
                       {...register('discount')}
                       min="0"
                       max="100"
+                      step="1"
                       autoFocus
                       onBlur={() => setEditingDiscount(false)}
-                      onKeyDown={e => { if (e.key === 'Enter') setEditingDiscount(false); }}
                       className="w-16 px-2 py-1 border border-neutral-200 rounded text-center focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-600 transition-all duration-200"
                       placeholder="0"
                       disabled={submitting}
                       onChange={(e) => {
-                        const value = parseFloat(e.target.value) || 0;
-                        setDiscountPercent(Math.round(value * 100) / 100);
+                        const value = parseInt(e.target.value) || 0;
+                        setValue('discount', value);
+                        setDiscountPercent(value);
+                      }}
+                      onKeyDown={(e) => {
+                        // Prevent decimal point and other non-integer characters
+                        if (e.key === '.' || e.key === ',' || e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '-') {
+                          e.preventDefault();
+                        }
+                        if (e.key === 'Enter') setEditingDiscount(false);
                       }}
                     />
                   ) : (

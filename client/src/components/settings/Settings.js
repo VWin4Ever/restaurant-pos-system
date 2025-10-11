@@ -29,20 +29,19 @@ const businessSchema = yup.object({
     .trim()
     .email('Invalid email format')
     .required('Email is required'),
-  taxRate: yup.number()
-    .min(0, 'Tax rate cannot be negative')
-    .max(100, 'Tax rate cannot exceed 100%')
-    .required('Tax rate is required'),
-  currency: yup.string()
-    .required('Currency is required'),
-  timezone: yup.string()
-    .required('Timezone is required')
+  vatRate: yup.number()
+    .min(0, 'VAT rate cannot be negative')
+    .max(100, 'VAT rate cannot exceed 100%')
+    .required('VAT rate is required'),
+  exchangeRate: yup.number()
+    .min(0.01, 'Exchange rate must be greater than 0')
+    .max(100000, 'Exchange rate cannot exceed 100,000')
+    .required('Exchange rate is required')
 }).required();
 
 const systemSchema = yup.object({
   autoRefreshInterval: yup.number().min(10).max(300).required('Auto refresh interval is required'),
   lowStockThreshold: yup.number().min(1).max(100).required('Low stock threshold is required'),
-  maxTables: yup.number().min(1).max(100).required('Maximum tables is required'),
   enableNotifications: yup.boolean(),
   enableAutoBackup: yup.boolean(),
   backupFrequency: yup.string().test('backup-frequency-required', 'Backup frequency is required when auto backup is enabled', function(value) {
@@ -84,9 +83,8 @@ const Settings = () => {
       address: '',
       phone: '',
       email: '',
-      taxRate: 10.0, // Updated to 10% as requested
-      currency: 'USD',
-      timezone: 'Asia/Phnom_Penh' // Updated to Cambodia timezone
+      vatRate: 10.0, // Updated to 10% as requested
+      exchangeRate: 4100.0 // Default exchange rate: 1 USD = 4100 Riel
     }
   });
 
@@ -95,7 +93,6 @@ const Settings = () => {
     defaultValues: {
       autoRefreshInterval: 30,
       lowStockThreshold: 10,
-      maxTables: 20,
       enableNotifications: true,
       enableAutoBackup: false,
       backupFrequency: 'daily'
@@ -121,15 +118,13 @@ const Settings = () => {
         address: globalSettings.business?.address || '',
         phone: globalSettings.business?.phone || '',
         email: globalSettings.business?.email || '',
-        taxRate: globalSettings.business?.taxRate || 0,
-        currency: globalSettings.business?.currency || 'USD',
-        timezone: globalSettings.business?.timezone || 'UTC'
+        vatRate: globalSettings.business?.vatRate || 0,
+        exchangeRate: globalSettings.business?.exchangeRate || 4100.0
       });
 
       systemForm.reset({
         autoRefreshInterval: globalSettings.system?.autoRefreshInterval || 30,
         lowStockThreshold: globalSettings.system?.lowStockThreshold || 10,
-        maxTables: globalSettings.system?.maxTables || 20,
         enableNotifications: globalSettings.system?.enableNotifications !== false,
         enableAutoBackup: globalSettings.system?.enableAutoBackup || false,
         backupFrequency: globalSettings.system?.backupFrequency || 'daily'
@@ -312,43 +307,6 @@ const Settings = () => {
     }
   };
 
-  const currencies = [
-    { code: 'USD', name: 'US Dollar ($)' },
-    { code: 'EUR', name: 'Euro (€)' },
-    { code: 'GBP', name: 'British Pound (£)' },
-    { code: 'JPY', name: 'Japanese Yen (¥)' },
-    { code: 'CAD', name: 'Canadian Dollar (C$)' },
-    { code: 'AUD', name: 'Australian Dollar (A$)' },
-    { code: 'KHR', name: 'Cambodian Riel (៛)' },
-    { code: 'THB', name: 'Thai Baht (฿)' },
-    { code: 'VND', name: 'Vietnamese Dong (₫)' },
-    { code: 'SGD', name: 'Singapore Dollar (S$)' },
-    { code: 'MYR', name: 'Malaysian Ringgit (RM)' },
-    { code: 'IDR', name: 'Indonesian Rupiah (Rp)' },
-    { code: 'PHP', name: 'Philippine Peso (₱)' },
-    { code: 'CNY', name: 'Chinese Yuan (¥)' },
-    { code: 'KRW', name: 'South Korean Won (₩)' }
-  ];
-
-  const timezones = [
-    { value: 'UTC', name: 'UTC (Coordinated Universal Time)' },
-    { value: 'Asia/Phnom_Penh', name: 'Cambodia (ICT) 🇰🇭' },
-    { value: 'Asia/Bangkok', name: 'Thailand (ICT) 🇹🇭' },
-    { value: 'Asia/Ho_Chi_Minh', name: 'Vietnam (ICT) 🇻🇳' },
-    { value: 'Asia/Singapore', name: 'Singapore (SGT) 🇸🇬' },
-    { value: 'Asia/Kuala_Lumpur', name: 'Malaysia (MYT) 🇲🇾' },
-    { value: 'Asia/Jakarta', name: 'Indonesia (WIB) 🇮🇩' },
-    { value: 'Asia/Manila', name: 'Philippines (PHT) 🇵🇭' },
-    { value: 'Asia/Shanghai', name: 'China (CST) 🇨🇳' },
-    { value: 'Asia/Seoul', name: 'South Korea (KST) 🇰🇷' },
-    { value: 'Asia/Tokyo', name: 'Japan (JST) 🇯🇵' },
-    { value: 'America/New_York', name: 'Eastern Time (ET) 🇺🇸' },
-    { value: 'America/Chicago', name: 'Central Time (CT) 🇺🇸' },
-    { value: 'America/Denver', name: 'Mountain Time (MT) 🇺🇸' },
-    { value: 'America/Los_Angeles', name: 'Pacific Time (PT) 🇺🇸' },
-    { value: 'Europe/London', name: 'London (GMT) 🇬🇧' },
-    { value: 'Europe/Paris', name: 'Paris (CET) 🇫🇷' }
-  ];
 
   if (loading || settingsLoading) {
     return <LoadingSpinner />;
@@ -470,24 +428,8 @@ const Settings = () => {
                   </div>
                 )}
                 
-                <div className="flex items-center space-x-2">
-                  <Icon name="database" size="sm" className="text-gray-500" />
-                  <div>
-                    <span className="text-sm text-gray-600">Total:</span>
-                    <span className="ml-1 text-sm font-medium text-gray-700">
-                      {backupStatus.backupCount} backups ({backupStatus.totalSize})
-                    </span>
-                  </div>
-                </div>
               </div>
               
-              <button
-                onClick={fetchBackupStatus}
-                className="flex items-center space-x-2 px-3 py-2 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
-              >
-                <Icon name="refresh" size="sm" />
-                <span>Refresh</span>
-              </button>
             </div>
           </div>
         )}
@@ -587,13 +529,13 @@ const Settings = () => {
                   <h3 className="text-lg font-semibold text-neutral-800 border-b border-neutral-200 pb-2">
                     Business Settings
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                        Tax Rate (%) *
+                        VAT Rate (%) *
                       </label>
                       <input
-                        {...businessForm.register('taxRate', { 
+                        {...businessForm.register('vatRate', { 
                           valueAsNumber: true,
                           setValueAs: (value) => value === '' ? 0 : parseFloat(value) || 0
                         })}
@@ -602,58 +544,38 @@ const Settings = () => {
                         min="0"
                         max="100"
                         className={`w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent ${
-                          businessForm.formState.errors.taxRate ? 'border-red-300' : ''
+                          businessForm.formState.errors.vatRate ? 'border-red-300' : ''
                         }`}
                         placeholder="0.00"
                       />
-                      {businessForm.formState.errors.taxRate && (
-                        <p className="mt-1 text-sm text-red-600">{businessForm.formState.errors.taxRate.message}</p>
+                      {businessForm.formState.errors.vatRate && (
+                        <p className="mt-1 text-sm text-red-600">{businessForm.formState.errors.vatRate.message}</p>
                       )}
                       <p className="mt-1 text-sm text-neutral-500">Applied to all orders (0-100%)</p>
                     </div>
 
                     <div>
                       <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                        Currency *
+                        Exchange Rate (1 USD = X Riel) *
                       </label>
-                      <select
-                        {...businessForm.register('currency')}
+                      <input
+                        {...businessForm.register('exchangeRate', { 
+                          valueAsNumber: true,
+                          setValueAs: (value) => value === '' ? 0 : parseFloat(value) || 0
+                        })}
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        max="100000"
                         className={`w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent ${
-                          businessForm.formState.errors.currency ? 'border-red-300' : ''
+                          businessForm.formState.errors.exchangeRate ? 'border-red-300' : ''
                         }`}
-                      >
-                        {currencies.map(currency => (
-                          <option key={currency.code} value={currency.code}>
-                            {currency.name}
-                          </option>
-                        ))}
-                      </select>
-                      {businessForm.formState.errors.currency && (
-                        <p className="mt-1 text-sm text-red-600">{businessForm.formState.errors.currency.message}</p>
+                        placeholder="4100.00"
+                      />
+                      {businessForm.formState.errors.exchangeRate && (
+                        <p className="mt-1 text-sm text-red-600">{businessForm.formState.errors.exchangeRate.message}</p>
                       )}
-                      <p className="mt-1 text-sm text-neutral-500">Used for all transactions</p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                        Timezone *
-                      </label>
-                      <select
-                        {...businessForm.register('timezone')}
-                        className={`w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent ${
-                          businessForm.formState.errors.timezone ? 'border-red-300' : ''
-                        }`}
-                      >
-                        {timezones.map(tz => (
-                          <option key={tz.value} value={tz.value}>
-                            {tz.name}
-                          </option>
-                        ))}
-                      </select>
-                      {businessForm.formState.errors.timezone && (
-                        <p className="mt-1 text-sm text-red-600">{businessForm.formState.errors.timezone.message}</p>
-                      )}
-                      <p className="mt-1 text-sm text-neutral-500">For date/time display</p>
+                      <p className="mt-1 text-sm text-neutral-500">Current exchange rate for USD to Riel conversion</p>
                     </div>
                   </div>
                 </div>
@@ -751,26 +673,6 @@ const Settings = () => {
                       <p className="mt-1 text-sm text-red-600">{systemForm.formState.errors.lowStockThreshold.message}</p>
                     )}
                     <p className="mt-1 text-sm text-neutral-500">Minimum stock level before alert (1-100)</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                      Maximum Tables *
-                    </label>
-                    <input
-                      {...systemForm.register('maxTables', { valueAsNumber: true })}
-                      type="number"
-                      min="1"
-                      max="100"
-                      className={`w-full px-4 py-3 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent ${
-                        systemForm.formState.errors.maxTables ? 'border-red-300' : ''
-                      }`}
-                      placeholder="20"
-                    />
-                    {systemForm.formState.errors.maxTables && (
-                      <p className="mt-1 text-sm text-red-600">{systemForm.formState.errors.maxTables.message}</p>
-                    )}
-                    <p className="mt-1 text-sm text-neutral-500">Maximum number of tables in the system (1-100)</p>
                   </div>
 
                   <div>

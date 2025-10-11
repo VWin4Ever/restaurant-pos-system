@@ -1,0 +1,49 @@
+Sales Report - Comprehensive
+Date Range: 2025-10-09 to 2025-10-09
+Generated: 2025-10-09 16:11:51
+
+=== SALES SUMMARY ===
+Total Revenue,157.99
+Total Orders,5
+Total Items,11
+Average Order,31.60
+
+=== PAYMENT METHODS ===
+Payment Method,Currency,Count,Revenue,Percentage
+CASH,USD,2,17.580000000000002,11.13%
+QR,Riel,1,49.47,31.31%
+QR,USD,1,24.98,15.81%
+CARD,USD,1,65.96,41.75%
+
+=== DISCOUNTS ===
+Total Discounts,2.5
+Discount Percentage,1.58%
+
+=== MENU PERFORMANCE ===
+Product,Quantity Sold,Revenue
+Cambodian Curry,3,47.97
+Calamari Fritters,2,25.98
+Chicken or Beef Satay,1,17.99
+Banana in Coconut Cream,2,17.98
+Burgers,1,15.99
+Bake French Onion Soup,1,12.99
+Beer,1,6.99
+
+=== CATEGORY SALES ===
+Category,Quantity Sold,Revenue
+Soup,3,47.97
+Appetizers and Snack,3,41.97
+Main course,1,17.99
+Dessert,2,17.98
+Western Soup,1,12.99
+Hot&Cold Drinks,1,6.99
+
+=== TABLE PERFORMANCE ===
+Table,Orders,Revenue,Average Order
+1,2,90.94,45.47
+5,2,57.16,28.58
+6,1,9.89,9.89
+
+=== PEAK HOURS ===
+Hour,Orders,Revenue
+14:00,5,157.99

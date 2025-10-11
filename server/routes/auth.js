@@ -49,6 +49,81 @@ router.post('/login', loginValidation, async (req, res) => {
       });
     }
 
+    // Check shift timing for cashiers (not for admins)
+    let userWithShift = null;
+    if (user.role === 'CASHIER') {
+      // Get user with shift info
+      userWithShift = await prisma.user.findUnique({
+        where: { id: user.id },
+        include: {
+          shift: true
+        }
+      });
+
+      // Check if user has a shift assigned
+      if (!userWithShift || !userWithShift.shift) {
+        return res.status(403).json({
+          success: false,
+          message: 'No shift assigned. Please contact admin.',
+          errorCode: 'NO_SHIFT_ASSIGNED'
+        });
+      }
+
+      // Check if current time is within shift time (±grace period)
+      const now = new Date();
+      const currentTime = now.toTimeString().slice(0, 5); // HH:MM format
+      const shift = userWithShift.shift;
+
+      // Helper function to check if time is within shift
+      const isWithinShiftTime = (currentTime, startTime, endTime, gracePeriod, daysOfWeek = null) => {
+        // Check days of week first
+        if (daysOfWeek) {
+          try {
+            const allowedDays = JSON.parse(daysOfWeek);
+            const currentDay = new Date().toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+            
+            if (!allowedDays.includes(currentDay)) {
+              return false; // Not a valid day for this shift
+            }
+          } catch (error) {
+            console.error('Error parsing days of week:', error);
+            // Continue with time check if days parsing fails
+          }
+        }
+
+        const timeToMinutes = (timeString) => {
+          const [hours, minutes] = timeString.split(':').map(Number);
+          return hours * 60 + minutes;
+        };
+
+        const current = timeToMinutes(currentTime);
+        const start = timeToMinutes(startTime) - gracePeriod;
+        const end = timeToMinutes(endTime) + gracePeriod;
+
+        // Handle overnight shifts (e.g., 23:00 - 07:00)
+        if (start > end) {
+          return current >= start || current <= end;
+        }
+
+        return current >= start && current <= end;
+      };
+
+      if (!isWithinShiftTime(currentTime, shift.startTime, shift.endTime, shift.gracePeriod, shift.daysOfWeek)) {
+        return res.status(403).json({
+          success: false,
+          message: 'You are not scheduled for this shift. Contact admin.',
+          errorCode: 'OUTSIDE_SHIFT_TIME',
+          shiftInfo: {
+            name: shift.name,
+            startTime: shift.startTime,
+            endTime: shift.endTime,
+            gracePeriod: shift.gracePeriod,
+            currentTime
+          }
+        });
+      }
+    }
+
     // Update login tracking
     await prisma.user.update({
       where: { id: user.id },
@@ -60,6 +135,39 @@ router.post('/login', loginValidation, async (req, res) => {
         updatedAt: new Date()
       }
     });
+
+    // Auto clock-in for cashiers (since login already validates shift time)
+    if (user.role === 'CASHIER' && userWithShift && userWithShift.shift) {
+      try {
+        // Check if user is already clocked in
+        const activeClockIn = await prisma.shiftLog.findFirst({
+          where: {
+            userId: user.id,
+            type: 'CLOCK_IN',
+            clockOut: null
+          }
+        });
+
+        // Only auto clock-in if not already clocked in
+        if (!activeClockIn) {
+          // Create auto clock-in log
+          await prisma.shiftLog.create({
+            data: {
+              userId: user.id,
+              shiftId: userWithShift.shiftId,
+              type: 'CLOCK_IN',
+              clockIn: new Date(),
+              notes: 'Auto clock-in on login'
+            }
+          });
+
+          console.log(`Auto clock-in: User ${user.username} (${user.name}) clocked in automatically on login`);
+        }
+      } catch (autoClockInError) {
+        // Log error but don't fail login
+        console.error('Auto clock-in error:', autoClockInError);
+      }
+    }
 
     // Generate JWT token
     const token = jwt.sign(

@@ -109,7 +109,7 @@ function App() {
           <Route
             path="products"
             element={
-              hasPermission('products.view') ? (
+              hasPermission('products.read') ? (
                 <Products />
               ) : <Navigate to="/dashboard" replace />
             }
@@ -118,7 +118,7 @@ function App() {
           <Route
             path="categories"
             element={
-              hasPermission('categories.view') ? (
+              hasPermission('categories.read') ? (
                 <Categories />
               ) : <Navigate to="/dashboard" replace />
             }
